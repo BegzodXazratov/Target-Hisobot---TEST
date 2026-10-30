@@ -679,6 +679,21 @@ document.addEventListener('submit', async e => {
   }
 });
 
+/* ---------- oq / qora rejim ---------- */
+const mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+function applyTheme() {
+  const t = store.get('theme', null);
+  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  const dark = t ? t === 'dark' : !!(mq && mq.matches);
+  document.documentElement.classList.toggle('isdark', dark);
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('[data-thm]')) return;
+  store.set('theme', document.documentElement.classList.contains('isdark') ? 'light' : 'dark'); applyTheme();
+});
+if (mq && mq.addEventListener) mq.addEventListener('change', applyTheme);
+applyTheme();
+
 /* ---------- start ---------- */
 applyBrand();
 (async () => {
