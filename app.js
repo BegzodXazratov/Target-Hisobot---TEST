@@ -243,7 +243,7 @@ function speedo(cpl) {
 function dayChart(days, mode) {
   const W = 760, H = 230, L = 40, R = 40, T = 14, B = 26, n = days.length;
   if (!n) return '';
-  const val = d => mode === 'sales' ? d.sales : mode === 'spend' ? d.spend : d.leads;
+  const val = d => mode === 'sales' ? d.sales : mode === 'spend' ? d.spend : mode === 'qual' ? d.qual : d.leads;
   const max = Math.max(1, ...days.map(val)) * 1.12;
   const cpls = days.map(d => d.leads ? d.spend / d.leads : null), cmax = Math.max(CFG.targetCpl * 1.6, ...cpls.filter(v => v != null)) * 1.1;
   const bw = (W - L - R) / n, y = v => T + (H - T - B) * (1 - v / max), yc = v => T + (H - T - B) * (1 - v / cmax);
@@ -260,7 +260,7 @@ function dayChart(days, mode) {
       + pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="${n > 40 ? 0 : 2.8}" fill="var(--warn)"/>`).join('');
   }
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Kunlik grafik">${g}${bars}${line}</svg></div>
-  <div class="legend"><span><b style="background:var(--acc)"></b>${mode === 'sales' ? 'Sotuvlar' : mode === 'spend' ? 'Sarf' : 'Lidlar'}</span>${mode === 'leads' && n > 1 ? '<span><b style="background:var(--warn)"></b>Lid narxi</span><span><b style="background:var(--good)"></b>Maqsad narx</span>' : ''}</div>`;
+  <div class="legend"><span><b style="background:var(--acc)"></b>${mode === 'sales' ? 'Sotuvlar' : mode === 'spend' ? 'Sarf' : mode === 'qual' ? 'Sifatli lidlar' : 'Lidlar'}</span>${mode === 'leads' && n > 1 ? '<span><b style="background:var(--warn)"></b>Lid narxi</span><span><b style="background:var(--good)"></b>Maqsad narx</span>' : ''}</div>`;
 }
 function funnel(t) {
   const st = [['Lidlar', t.leads, 'Formadan kelgan'], ["Bog'lanildi", t.contacted, "Sotuvchi qo'ng'iroq qildi"], ['Sifatli', t.qual, 'Real xaridor'], ['Sotildi', t.sales, 'Pul to\'landi']];
@@ -276,7 +276,7 @@ function statusPill(cpl) {
 const pbar = (title, withPeriod = true) => `<div class="pbar"><h2>${title}</h2>${withPeriod ? `<div class="seg" id="per">${PERIODS.map(([k, l]) => `<button data-p="${k}" class="${k === PERIOD ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}</div>`;
 
 /* ---------- bo'limlar ---------- */
-const TABS = [['umumiy', 'Umumiy'], ['kampaniyalar', 'Kampaniyalar'], ['lidlar', 'Lidlar'], ['sotuvchilar', 'Sotuvchilar'], ['sozlamalar', 'Sozlamalar', 'admin'], ['taqdimot', 'Tizim haqida', null, 'pitch']];
+const TABS = [['umumiy', 'Umumiy', null, 'grid'], ['kampaniyalar', 'Kampaniyalar', null, 'mega'], ['lidlar', 'Lidlar', null, 'users'], ['sifat', 'Sifatli lidlar', null, 'star'], ['sotuvchilar', 'Sotuvchilar', null, 'headset'], ['sozlamalar', 'Sozlamalar', 'admin', 'gear'], ['taqdimot', 'Tizim haqida', null, 'info']];
 let chartMode = 'leads';
 
 function vUmumiy() {
@@ -415,105 +415,147 @@ function vSotuvchilar() {
   </div>`;
 }
 
-let setMsg = {};
+/* ---------- ikonkalar (umumiy belgilar, brend logotipi emas) ---------- */
+const IC = {
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  mega: '<path d="M3 11v2a1 1 0 0 0 1 1h3l6 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14a6 6 0 0 1 3.5 6"/>',
+  star: '<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/>',
+  headset: '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+  db: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  code: '<path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  fx: '<path d="M10 4H8a2 2 0 0 0-2 2v14M3 11h6M13 9l7 8M20 9l-7 8"/>',
+  palette: '<circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1.2"/><circle cx="12" cy="7.5" r="1.2"/><circle cx="16" cy="10" r="1.2"/><path d="M12 21a2.5 2.5 0 0 1 0-5h2a3 3 0 0 0 3-3"/>',
+  plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>'
+};
+const ico = (k, s = 18) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[k] || IC.info}</svg>`;
+function integTiles() {
+  return `<div class="integ">${(C.integrations || []).map(g => `<div class="itile"><span class="ilogo" style="--c:${g.color}">${ico(g.icon, 22)}${g.logo ? `<img src="${esc(g.logo)}" alt="" onerror="this.remove()">` : ''}</span>
+    <div class="t"><b>${esc(g.name)}</b><small>${esc(g.desc)}</small></div><span class="pill p-good">ulangan</span></div>`).join('')}</div>`;
+}
+const tgLink = () => `<a class="btn" href="${esc(C.pitch.contactUrl)}" target="_blank" rel="noopener">${ico('chat', 16)} ${esc(C.pitch.contactLabel)}</a>`;
+
+/* ---------- Sifatli lidlar ---------- */
+function vSifat() {
+  const R = range(), A = aggregate(R.from, R.to), P = aggregate(R.prev.from, R.prev.to), t = A.tot, pt = P.tot;
+  const rate = div(t.qual, t.leads);
+  const K = [['Sifatli lidlar', 'int', t.qual, pt.qual, 1], ['Sifatli lid ulushi', 'pct', rate, div(pt.qual, pt.leads), 1], ['Bitta sifatli lid narxi', 'money', div(t.spend, t.qual), div(pt.spend, pt.qual), -1], ['Sifatli lid → sotuv', 'pct', div(t.sales, t.qual), div(pt.sales, pt.qual), 1]];
+  const camps = C.campaigns.map(c => ({ c, a: A.byCamp[c.id] || ZERO() })).filter(p => p.a.leads).map(p => ({ ...p, r: p.a.qual / p.a.leads })).sort((p, q) => q.r - p.r);
+  const grade = r => r >= .58 ? '<span class="pill p-good">Yuqori</span>' : r >= .53 ? '<span class="pill p-warn">O\'rtacha</span>' : '<span class="pill p-bad">Past</span>';
+  const ads = Object.entries(A.byAd).filter(([, a]) => a.leads >= 5).map(([id, a]) => { const [cid, i] = id.split('-'); return [ADW[cid][+i].name, a.qual / a.leads, int(a.qual) + ' ta']; }).sort((p, q) => q[1] - p[1]);
+  const tod = [['Ertalab (08–12)', 1.07], ['Kunduzi (12–17)', 1.04], ['Kechqurun (17–22)', .97], ['Tunda (22–08)', .79]].map(([n, k]) => [n, Math.min(.95, (rate || 0) * k)]);
+  const best = camps[0], worst = camps[camps.length - 1];
+  return pbar('Sifatli lidlar') + `
+  <div class="card qdef"><div><h3>Sifatli lid nima?</h3><p class="cap" style="margin:0">Sotuvchi gaplashgandan keyin CRM'da belgilaydi. Uchala shart bajarilsa — lid sifatli.</p></div>
+    <div class="qchk">${['Telefonni ko\'tardi va gaplashdi', 'Aniq model va narxga qiziqdi', 'Xarid qila oladi: shu shaharda, to\'lov usuli mos'].map(s => `<span>${ico('check', 16)}${s}</span>`).join('')}</div></div>
+  <div class="kpis mt">${K.map(([n, f, v, pv, g]) => `<div class="kpi"><div class="k">${n}</div><div class="v num" data-k="q-${n}">${FMT[f](v)}</div>${delta({ good: g }, v, pv)}</div>`).join('')}</div>
+  ${best && worst ? `<div class="note mt">Eng sifatli lid: <b>${esc(best.c.name)}</b> — ${pct(best.r)}. Eng past: <b>${esc(worst.c.name)}</b> — ${pct(worst.r)}. Past kampaniyada auditoriya va forma savollarini qayta ko'ramiz.</div>` : ''}
+  <div class="card mt"><h3>Kampaniyalar bo'yicha sifat</h3><p class="cap">Qaysi reklama "real xaridor" olib kelyapti</p><div class="tw"><table><thead><tr><th>Kampaniya</th><th class="r">Lid</th><th class="r">Sifatli</th><th style="min-width:140px">Ulush</th><th class="r">Sifatli lid narxi</th><th class="r">Sifatli → sotuv</th><th>Baho</th></tr></thead><tbody>
+  ${camps.map(({ c, a, r }) => `<tr><td><b>${esc(c.name)}</b></td><td class="r num">${int(a.leads)}</td><td class="r num">${int(a.qual)}</td><td><div class="mbar"><i style="width:${(r * 100).toFixed(0)}%"></i></div><span class="num" style="font-size:12.5px">${pct(r)}</span></td><td class="r num"><b>${money(div(a.spend, a.qual))}</b></td><td class="r num">${pct(div(a.sales, a.qual))}</td><td>${grade(r)}</td></tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="grid g2 mt">
+    ${A.byDay.length > 1 ? `<div class="card"><h3>Kunlar bo'yicha sifatli lidlar</h3><p class="cap">Har kuni nechta real xaridor keldi</p>${dayChart(A.byDay, 'qual')}</div>` : ''}
+    <div class="card"><h3>Eng sifatli reklamalar</h3><p class="cap">Sifatli lid ulushi bo'yicha</p>${hbars(ads.slice(0, 6), pct)}</div>
+    <div class="card"><h3>Kun vaqti bo'yicha</h3><p class="cap">Lid qaysi paytda kelsa, sifatliroq</p>${hbars(tod, pct)}<div class="note mt">Tunda kelgan lidlar sifati past. Shuning uchun byudjetning ko'p qismi kunduzgi soatlarga qo'yiladi.</div></div>
+    <div class="card"><h3>Sifatli lid qayerga ketdi</h3><p class="cap">${int(t.qual)} ta sifatli lid taqdiri</p>${hbars([['Sotildi', t.sales], ['O\'ylab ko\'ryapti / qayta qo\'ng\'iroq', Math.round((t.qual - t.sales) * .62)], ['Boshqa joydan oldi', Math.round((t.qual - t.sales) * .23)], ['Narx to\'g\'ri kelmadi', Math.round((t.qual - t.sales) * .15)]], int)}</div>
+  </div>`;
+}
+
+/* ---------- Sozlamalar ---------- */
+let setMsg = {}, SETTAB = 'profil';
+const SETS = [['profil', "Kirish ma'lumotlari", 'user'], ['users', 'Foydalanuvchilar', 'users'], ['metrics', "Ko'rsatkichlar", 'sliders'], ['custom', "O'z ko'rsatkichingiz", 'fx'], ['brand', "Ko'rinish", 'palette'], ['integr', 'Integratsiyalar', 'plug']];
 function vSozlamalar(us) {
   if (USER.role !== 'admin') return pbar('Sozlamalar', false) + '<div class="card">Bu bo\'lim faqat administrator uchun.</div>';
   const all = allMetrics(), on = CFG.metrics.filter(k => all.some(m => m.key === k)), off = all.filter(m => !on.includes(m.key));
   const ordered = on.map(k => all.find(m => m.key === k)).concat(off);
   const COLORS = ['#0a7cff', '#111827', '#16a34a', '#e0413a', '#7c3aed', '#f97316', '#0891b2', '#db2777'];
   const R = range(), A = aggregate(R.from, R.to);
-  return pbar('Sozlamalar', false) + `<div class="set">
-  <div class="card"><h3>Kirish ma'lumotlari</h3><p class="cap">Siz: <b>${esc(USER.login)}</b>. Login yoki parolni almashtirish uchun joriy parolni kiriting.</p>
+  const S = {
+    profil: `<div class="card"><h3>Kirish ma'lumotlari</h3><p class="cap">Siz: <b>${esc(USER.login)}</b>. Login yoki parolni almashtirish uchun joriy parolni kiriting.</p>
     <form id="fme"><div class="row2"><div class="fld"><label>Yangi login</label><input class="in" name="login" value="${esc(USER.login)}" required minlength="3" autocomplete="username"></div>
     <div class="fld"><label>Ism</label><input class="in" name="name" value="${esc(USER.name || '')}"></div></div>
     <div class="row2"><div class="fld"><label>Yangi parol</label><input class="in" name="np" type="password" minlength="6" placeholder="o'zgartirmaslik uchun bo'sh" autocomplete="new-password"></div>
     <div class="fld"><label>Joriy parol</label><input class="in" name="op" type="password" required autocomplete="current-password"></div></div>
-    <div class="err">${setMsg.me_e || ''}</div><div class="ok">${setMsg.me || ''}</div><button class="btn">Saqlash</button></form></div>
-
-  <div class="card"><h3>Foydalanuvchilar</h3><p class="cap">Rahbar, sotuv bo'limi yoki hamkorga alohida login bering. "Ko'ruvchi" sozlamalarni o'zgartira olmaydi.</p>
+    <div class="err">${setMsg.me_e || ''}</div><div class="ok">${setMsg.me || ''}</div><button class="btn">Saqlash</button></form></div>`,
+    users: `<div class="card"><h3>Foydalanuvchilar</h3><p class="cap">Rahbar, sotuv bo'limi yoki hamkorga alohida login bering. "Ko'ruvchi" sozlamalarni o'zgartira olmaydi.</p>
     <div class="tw"><table><thead><tr><th>Ism</th><th>Login</th><th>Rol</th><th></th></tr></thead><tbody>
     ${us.map((u, i) => `<tr><td>${esc(u.name || '—')}</td><td><b>${esc(u.login)}</b></td><td><span class="pill ${u.role === 'admin' ? 'p-acc' : 'p-mut'}">${u.role === 'admin' ? 'Administrator' : "Ko'ruvchi"}</span></td><td class="r">${u.login === USER.login ? '<span class="fl">siz</span>' : `<button class="btn d s" data-du="${i}">O'chirish</button>`}</td></tr>`).join('')}
     </tbody></table></div>
     <form id="fadd" class="mt"><div class="row2"><div class="fld"><label>Ism</label><input class="in" name="name" placeholder="Masalan: Rahbar"></div><div class="fld"><label>Rol</label><select class="in" name="role"><option value="viewer">Ko'ruvchi</option><option value="admin">Administrator</option></select></div></div>
     <div class="row2"><div class="fld"><label>Login</label><input class="in" name="login" required minlength="3" autocomplete="off"></div><div class="fld"><label>Parol</label><input class="in" name="p" required minlength="6" autocomplete="new-password"></div></div>
-    <div class="err">${setMsg.add_e || ''}</div><div class="ok">${setMsg.add || ''}</div><button class="btn">Foydalanuvchi qo'shish</button></form></div>
-
-  <div class="card"><h3>Ko'rsatkichlar</h3><p class="cap">Umumiy sahifada qaysi raqamlar va qaysi tartibda chiqsin</p>
+    <div class="err">${setMsg.add_e || ''}</div><div class="ok">${setMsg.add || ''}</div><button class="btn">Foydalanuvchi qo'shish</button></form></div>`,
+    metrics: `<div class="card"><h3>Ko'rsatkichlar</h3><p class="cap">Umumiy sahifada qaysi raqamlar va qaysi tartibda chiqsin</p>
     <div class="mlist">${ordered.map(m => { const i = on.indexOf(m.key), act = i >= 0; return `<div class="mi ${act ? '' : 'off'}"><label class="sw"><input type="checkbox" data-mk="${esc(m.key)}" ${act ? 'checked' : ''}><span></span></label>
       <div class="t">${esc(m.label)}${m.custom ? ' <span class="tagc">o\'zim</span>' : ''}<small>${esc(m.hint)}</small></div>
       <span class="num fl" style="font-size:13px">${FMT[m.fmt](m.f(A.tot))}</span>
       ${act ? `<button class="ib" data-up="${esc(m.key)}" ${i === 0 ? 'disabled' : ''} aria-label="Yuqoriga">↑</button><button class="ib" data-dn="${esc(m.key)}" ${i === on.length - 1 ? 'disabled' : ''} aria-label="Pastga">↓</button>` : ''}
       ${m.custom ? `<button class="ib" data-dc="${esc(m.key)}" aria-label="O'chirish">×</button>` : ''}</div>`; }).join('')}</div>
-    <button class="btn g s mt" id="mreset">Standart holatga qaytarish</button></div>
-
-  <div class="card"><h3>O'z ko'rsatkichingizni qo'shing</h3><p class="cap">Biznesingizga kerak raqamni formula bilan yarating</p>
+    <button class="btn g s mt" id="mreset">Standart holatga qaytarish</button></div>`,
+    custom: `<div class="card"><h3>O'z ko'rsatkichingizni qo'shing</h3><p class="cap">Biznesingizga kerak raqamni formula bilan yarating</p>
     <form id="fcm"><div class="fld"><label>Nomi</label><input class="in" name="name" required placeholder="Masalan: Bitta sifatli lid narxi"></div>
     <div class="fld"><label>Formula</label><input class="in" name="f" id="cmf" required placeholder="sarf / sifatli"></div>
     <div class="vars">${Object.keys(VARS).map(v => `<button type="button" data-v="${v}">${v}</button>`).concat(['/', '*', '+', '-', '(', ')'].map(o => `<button type="button" data-v=" ${o} ">${o}</button>`)).join('')}</div>
     <div class="row2"><div class="fld"><label>Ko'rinishi</label><select class="in" name="fmt"><option value="money">Pul (${cur})</option><option value="int">Son</option><option value="pct">Foiz (%)</option><option value="x">Barobar (×)</option><option value="num">Kasr son</option></select></div>
     <div class="fld"><label>Hozirgi qiymat</label><div class="in num" id="cmprev" style="background:var(--soft)">—</div></div></div>
     <div class="err">${setMsg.cm_e || ''}</div><div class="ok">${setMsg.cm || ''}</div><button class="btn">Qo'shish</button></form>
-    <div class="note mt">Misollar: <b>daromad / sarf</b> (ROAS), <b>sotuv / sifatli</b> (sifatli lid → sotuv), <b>sarf / (lid - sifatli)</b> (sifatsiz lidga ketgan pul).</div></div>
-
-  <div class="card"><h3>Ko'rinish</h3><p class="cap">Do'kon nomi, rang va maqsad lid narxi</p>
+    <div class="note mt">Misollar: <b>daromad / sarf</b> (ROAS), <b>sotuv / sifatli</b> (sifatli lid → sotuv), <b>sarf / (lid - sifatli)</b> (sifatsiz lidga ketgan pul).</div></div>`,
+    brand: `<div class="card"><h3>Ko'rinish</h3><p class="cap">Do'kon nomi, rang va maqsad lid narxi</p>
     <form id="fbr"><div class="row2"><div class="fld"><label>Do'kon nomi</label><input class="in" name="brand" value="${esc(CFG.brand)}" required></div>
     <div class="fld"><label>Maqsad lid narxi (${cur})</label><input class="in" name="tcpl" type="number" step="0.05" min="0.1" value="${CFG.targetCpl}" required></div></div>
     <div class="fld"><label>Asosiy rang</label><div class="colors">${COLORS.map(c => `<button type="button" data-col="${c}" class="${c === CFG.accent ? 'on' : ''}" style="background:${c}" aria-label="${c}"></button>`).join('')}</div></div>
-    <div class="ok">${setMsg.br || ''}</div><button class="btn">Saqlash</button></form></div>
-
-  <div class="card"><h3>Ulanishlar</h3><p class="cap">Haqiqiy tizimda shu manbalardan har kuni avtomatik o'qiladi</p>
-    <div class="mlist">${[['Meta Ads', 'Sarf, ko\'rish, klik, lid — har soatda'], ['amoCRM / Bitrix24', 'Lid holati, sotuvchi, bitim summasi'], ['Sayt pikseli', "Qo'ng'iroq tugmasi bosilishi (Contact)"], ['Telegram bot', 'Har kuni 09:00 da qisqa hisobot']].map(([n, h]) => `<div class="mi"><div class="t">${n}<small>${h}</small></div><span class="pill p-good">demo</span></div>`).join('')}</div>
-    <button class="btn d s mt" id="reset">Demoni boshlang'ich holatga qaytarish</button></div>
-  </div>`;
+    <div class="ok">${setMsg.br || ''}</div><button class="btn">Saqlash</button></form></div>`,
+    integr: `<div class="card"><h3>Integratsiyalar</h3><p class="cap">Ma'lumot shu manbalardan avtomatik o'qiladi</p>${integTiles()}
+    <button class="btn d s mt" id="reset">Demoni boshlang'ich holatga qaytarish</button></div>`
+  };
+  if (!S[SETTAB]) SETTAB = 'profil';
+  return pbar('Sozlamalar', false) + `<div class="setw"><nav class="smenu">${SETS.map(([k, l, i]) => `<button data-st="${k}" class="${k === SETTAB ? 'on' : ''}">${ico(i)}<span>${l}</span></button>`).join('')}</nav><div class="sbody">${S[SETTAB]}</div></div>`;
 }
 
+/* ---------- Taqdimot ---------- */
 function vTaqdimot() {
   const A = aggregate(addDays(today(), -29), today()), t = A.tot, p = C.pitch;
   return `<div class="pitch">
-  <section><div class="eyebrow">${esc(p.agency)} · Target + hisobot tizimi</div>
-    <h2>Reklamaga ketgan har bir dollar qayerga borganini ko'ring</h2>
-    <p class="lead">Ads Manager faqat lid sonini ko'rsatadi. Bu tizim reklamani, CRM'ni va sotuv bo'limini bitta sahifaga yig'adi: qancha pul ketdi, nechta lid keldi, nechtasi real xaridor bo'ldi va qaysi reklama sotuv olib keldi.</p></section>
+  <section class="phero"><div class="eyebrow">${esc(p.agency)} · Target + hisobot</div>
+    <h2>Reklamangiz qancha sotuv olib kelayotganini bitta sahifada ko'ring</h2>
+    <p class="lead">Biz Meta reklamangizni yuritamiz va sizga shaxsiy hisobot sayt beramiz. Telefoningizdan ochasiz — 1 daqiqada hammasi tushunarli.</p>
+    <div class="pbtns">${tgLink()}${USER ? '' : '<a class="btn g" href="#">Demoni ochish</a>'}</div></section>
 
-  <section><div class="eyebrow">Muammo</div><h3>Ko'p biznesda reklama "ko'r" ishlaydi</h3>
-    <div class="pcards">
-      <div class="pc"><div class="ic">01</div><b>Lid ko'p, sotuv yo'q</b><p>Targetolog "lid arzon" deydi, sotuv bo'limi "lidlar sifatsiz" deydi. Kim haq — hech kim bilmaydi.</p></div>
-      <div class="pc"><div class="ic">02</div><b>Ma'lumot tarqoq</b><p>Sarf Meta'da, lidlar CRM'da, sotuv Excel'da. Haftalik hisobot yig'ish uchun soatlar ketadi.</p></div>
-      <div class="pc"><div class="ic">03</div><b>Lid "sovib" qoladi</b><p>Sotuvchi lidga 1 soatdan keyin qo'ng'iroq qilsa, mijoz allaqachon raqobatchidan sotib olgan bo'ladi.</p></div>
+  <section><div class="eyebrow">Qanday ishlaydi</div><h3>3 qadam</h3>
+    <div class="steps">
+      <div><span class="sn">1</span><b>Reklama</b><p>Meta'da reklama yuritamiz. Har bir lid qaysi reklamadan kelgani belgilanadi.</p></div>
+      <div><span class="sn">2</span><b>CRM</b><p>Lid CRM'ingizga tushadi. Sotuvchi gaplashib, holatini belgilaydi.</p></div>
+      <div><span class="sn">3</span><b>Hisobot</b><p>Sarf, lid, sifatli lid va sotuv — hammasi shu saytda, jonli.</p></div>
     </div></section>
 
-  <section><div class="eyebrow">Qanday ishlaydi</div><h3>Reklamadan pulgacha — bitta zanjir</h3>
-    <div class="flow">
-      <div class="st"><small>1</small><b>Meta reklama</b><p>Har bir reklamaga UTM belgi</p></div><div class="ar">→</div>
-      <div class="st"><small>2</small><b>Lid sayt / forma</b><p>Takror arizalar filtrlanadi</p></div><div class="ar">→</div>
-      <div class="st"><small>3</small><b>CRM</b><p>Lid qaysi reklamadan kelgani bilan tushadi</p></div><div class="ar">→</div>
-      <div class="st"><small>4</small><b>Hisobot sayt</b><p>Sarf + sifat + sotuv bitta joyda</p></div><div class="ar">→</div>
-      <div class="st"><small>5</small><b>Telegram</b><p>Har kuni ertalab qisqa xulosa</p></div>
+  <section><div class="eyebrow">Nima o'zgaradi</div><h3>Oldin va hozir</h3>
+    <div class="ba">
+      <div class="bef"><b>Oldin</b>${['Lid ko\'p, nechtasi sotilganini bilmaysiz', 'Hisobotni kutasiz yoki o\'zingiz yig\'asiz', 'Qaysi reklama pul olib kelyapti — taxmin', 'Sotuvchi lidga qachon qo\'ng\'iroq qilgani noma\'lum'].map(s => `<span>${ico('x', 16)}${s}</span>`).join('')}</div>
+      <div class="aft"><b>Hozir</b>${['Har bir lidning taqdiri ko\'rinib turadi', 'Hisobot har doim tayyor, telefonda ham', 'Har bir reklamaning bitta sotuv narxi ma\'lum', 'Sotuvchilarning javob tezligi nazoratda'].map(s => `<span>${ico('check', 16)}${s}</span>`).join('')}</div>
     </div></section>
 
-  <section><div class="eyebrow">Nimalarni ko'rasiz</div><h3>Rahbar 1 daqiqada tushunadigan hisobot</h3>
-    <div class="pcards">
-      <div class="pc"><b>Lid narxi spidometri</b><p>Yashil — yaxshi, qizil — choralar ko'rish kerak. Raqamlarni tahlil qilish shart emas.</p></div>
-      <div class="pc"><b>Sotuv voronkasi</b><p>Lid → bog'lanildi → sifatli → sotildi. Qaysi bosqichda yo'qotyapsiz.</p></div>
-      <div class="pc"><b>Har bir reklama samarasi</b><p>Qaysi video sotuv olib keldi, qaysi biri pulni yeb qo'ydi — bitta sotuv narxi bilan.</p></div>
-      <div class="pc"><b>Sotuvchilar nazorati</b><p>Kim lidga necha daqiqada qo'ng'iroq qildi, kimning konversiyasi past.</p></div>
-      <div class="pc"><b>Sifatsiz lid sabablari</b><p>Faqat narx so'radi, boshqa shahar, raqam xato — reklamani shunga qarab tuzatamiz.</p></div>
-      <div class="pc"><b>Sizga kerak ko'rsatkichlar</b><p>Metrikalarni yoqib-o'chirasiz, o'z formulangizni qo'shasiz. Har mijozga alohida sozlanadi.</p></div>
-    </div></section>
-
-  <section><div class="eyebrow">Demo misol · oxirgi 30 kun</div><h3>${esc(CFG.brand)}: reklamadan sotuvgacha</h3>
+  <section><div class="eyebrow">Demo misol · 30 kun</div><h3>${esc(CFG.brand)}</h3>
     <div class="case">
-      <div><div class="v num">${money(t.spend)}</div><div class="k">reklama sarfi</div></div>
-      <div><div class="v num">${int(t.leads)}</div><div class="k">lid · ${money(div(t.spend, t.leads))} dan</div></div>
-      <div><div class="v num">${pct(div(t.qual, t.leads))}</div><div class="k">sifatli lid</div></div>
-      <div><div class="v num">${int(t.sales)}</div><div class="k">sotuv · ${pct(div(t.sales, t.leads))} konversiya</div></div>
-      <div><div class="v num">${money(div(t.spend, t.sales))}</div><div class="k">bitta sotuv narxi</div></div>
+      <div><div class="v num">${money(t.spend)}</div><div class="k">reklamaga ketdi</div></div>
+      <div><div class="v num">${int(t.leads)}</div><div class="k">lid keldi (${money(div(t.spend, t.leads))} dan)</div></div>
+      <div><div class="v num">${pct(div(t.qual, t.leads))}</div><div class="k">lidlar sifatli</div></div>
+      <div><div class="v num">${int(t.sales)}</div><div class="k">sotuv — bittasi ${money(div(t.spend, t.sales))} ga</div></div>
     </div>
-    <p class="cap" style="margin-top:12px">Raqamlar namunaviy — tizim imkoniyatini ko'rsatish uchun.</p></section>
+    <p class="cap" style="margin-top:12px">Raqamlar namunaviy.</p></section>
 
-  <section><div class="pack"><div><div class="eyebrow">Paket</div><h3 style="margin:6px 0 10px;color:var(--bg)">Target xizmati + shaxsiy hisobot tizimi</h3>
-      <div class="price">${esc(p.price)}</div><p class="muted">Aniq narx byudjet va yo'nalishlar soniga qarab kelishiladi.</p>
-      <a class="btn" href="${esc(p.contactUrl)}" target="_blank" rel="noopener">${esc(p.contactLabel)}</a></div>
-    <ul><li>Meta reklamani to'liq boshqarish va kunlik optimizatsiya</li><li>Kreativ ssenariylar va reklama matnlari</li><li>Lid sayt yoki forma, takror arizalarni filtrlash</li><li>CRM bilan ulash va UTM belgilar</li><li>Shaxsiy hisobot sayt: login-parol, sozlamalar</li><li>Telegram'ga kunlik hisobot</li><li>Haftalik tahlil va keyingi qadamlar</li></ul></div></section>
+  <section><div class="eyebrow">Integratsiyalar</div><h3>Siz ishlatayotgan tizimlar bilan ulanadi</h3>${integTiles()}</section>
+
+  <section><div class="pack"><div><div class="eyebrow">Paket</div><h3 style="margin:6px 0 10px;color:var(--bg)">Target + shaxsiy hisobot sayt</h3>
+      <div class="price">${esc(p.price)}</div><p class="muted">Aniq narx byudjet va yo'nalishlar soniga qarab.</p>${tgLink()}</div>
+    <ul><li>Meta reklamani to'liq yuritish</li><li>Kreativ ssenariylar</li><li>Lid sayt yoki forma</li><li>CRM bilan ulash</li><li>Shaxsiy hisobot sayt (login-parol)</li><li>Har hafta tahlil va tavsiyalar</li></ul></div></section>
   </div>`;
 }
 
@@ -534,9 +576,10 @@ async function render(live) {
   $('#login').hidden = true; $('#pitchOnly').hidden = true; $('#app').hidden = false;
   TAB = TABS.some(t => t[0] === h) ? h : 'umumiy';
   if (TAB === 'sozlamalar' && USER.role !== 'admin') TAB = 'umumiy';
-  $('#tabs').innerHTML = TABS.filter(t => !t[2] || USER.role === t[2]).map(([k, l, , c]) => `<a href="#${k}" class="${k === TAB ? 'on' : ''} ${c || ''}">${l}</a>`).join('');
+  $('#tabs').innerHTML = TABS.filter(t => !t[2] || USER.role === t[2]).map(([k, l, , i]) => `<a href="#${k}" class="${k === TAB ? 'on' : ''} ${k === 'taqdimot' ? 'pitch' : ''}">${ico(i)}<span>${l}</span></a>`).join('');
+  document.body.classList.remove('menu');
   $('#whoami').textContent = USER.name || USER.login;
-  const V = { umumiy: vUmumiy, kampaniyalar: vKampaniyalar, lidlar: vLidlar, sotuvchilar: vSotuvchilar, sozlamalar: vSozlamalar, taqdimot: vTaqdimot };
+  const V = { umumiy: vUmumiy, kampaniyalar: vKampaniyalar, lidlar: vLidlar, sotuvchilar: vSotuvchilar, sozlamalar: vSozlamalar, taqdimot: vTaqdimot, sifat: vSifat };
   $('#view').innerHTML = TAB === 'sozlamalar' ? vSozlamalar(await users()) : V[TAB]() + '<div class="foot">Demo ma\'lumot · ' + esc(CFG.brand) + '</div>';
   setMsg = {};
   if (live) document.querySelectorAll('#view [data-k]').forEach(e => { if (before[e.dataset.k] != null && before[e.dataset.k] !== e.textContent) e.classList.add('bump'); });
@@ -558,7 +601,7 @@ function tick() {
   if (seen) top.filter(l => !seen.has(l.id)).slice(0, 2).reverse().forEach(toast);
   seen = new Set(top.map(l => l.id).concat(seen ? [...seen] : []));
   const a = document.activeElement, typing = a && /INPUT|SELECT|TEXTAREA/.test(a.tagName);
-  if (['umumiy', 'kampaniyalar', 'lidlar', 'sotuvchilar'].includes(TAB) && !typing) render(true); else stamp();
+  if (['umumiy', 'kampaniyalar', 'lidlar', 'sifat', 'sotuvchilar'].includes(TAB) && !typing) render(true); else stamp();
 }
 setInterval(tick, 15000);
 
@@ -577,6 +620,8 @@ window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); }
 
 document.addEventListener('click', async e => {
   const b = e.target.closest('button,tr.click'); if (!b) return;
+  if (b.dataset.st) { SETTAB = b.dataset.st; render(); return; }
+  if (b.id === 'mbtn') { document.body.classList.toggle('menu'); return; }
   if (b.dataset.p) { PERIOD = b.dataset.p; store.set('period', PERIOD); lshow = 40; render(); return; }
   if (b.dataset.m) { chartMode = b.dataset.m; render(); return; }
   if (b.dataset.c) { openCamp = openCamp === b.dataset.c ? null : b.dataset.c; render(); return; }

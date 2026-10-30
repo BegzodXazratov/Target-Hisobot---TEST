@@ -45,7 +45,18 @@ window.CLIENT = {
   pitch: {
     agency: 'TASMA',
     price: 'oyiga 500$ dan',
-    contactLabel: 'Instagram: @tasma.vs',
-    contactUrl: 'https://instagram.com/tasma.vs'
-  }
+    contactLabel: 'Telegram: @Xazratov_Begzod',
+    contactUrl: 'https://t.me/Xazratov_Begzod'
+  },
+
+  // Integratsiyalar. Rasmiy logotip faylini logos/ papkaga qo'ysangiz,
+  // ikonka o'rniga o'sha chiqadi (fayl bo'lmasa — ikonka qoladi).
+  integrations: [
+    { name: 'Meta Ads',      desc: 'Sarf, ko\'rish, klik, lid — har soatda', icon: 'mega',  color: '#1877f2', logo: 'logos/meta.svg' },
+    { name: 'amoCRM',        desc: 'Lid holati, sotuvchi, bitim summasi',    icon: 'db',    color: '#2a8de0', logo: 'logos/amocrm.svg' },
+    { name: 'Bitrix24',      desc: 'amoCRM o\'rniga ham ulanadi',            icon: 'db',    color: '#2fc6f6', logo: 'logos/bitrix24.svg' },
+    { name: 'Telegram bot',  desc: 'Yangi lid va har kungi hisobot',          icon: 'bell',  color: '#27a7e7', logo: 'logos/telegram.svg' },
+    { name: 'Sayt pikseli',  desc: 'Qo\'ng\'iroq tugmasi bosilishi',          icon: 'code',  color: '#7c3aed', logo: '' },
+    { name: 'Google Sheets', desc: 'Hisobotni jadvalga eksport',              icon: 'table', color: '#0f9d58', logo: 'logos/google-sheets.svg' }
+  ]
 };
