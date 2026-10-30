@@ -49,14 +49,17 @@ C.campaigns.forEach(c => {
   ADW[c.id] = names.map((n, i) => ({ id: c.id + '-' + i, name: n, w: w[i] / sw, cplM: .82 + r() * .4, qM: .9 + r() * .2, cvM: .85 + r() * .3 }));
 });
 const SW = (() => { const s = C.sellers, t = s.reduce((a, b) => a + b.share, 0); return s.map(x => ({ ...x, share: x.share / t })); })();
-const dayCache = {};
-function genDay(ds) {
-  if (dayCache[ds]) return dayCache[ds];
+// soat bo'yicha faollik (kechqurun ko'p, tunda kam)
+const HW = [.25, .15, .1, .08, .08, .12, .25, .5, .8, 1, 1.1, 1.15, 1.2, 1.15, 1.1, 1.1, 1.15, 1.2, 1.35, 1.5, 1.6, 1.5, 1.1, .6];
+const HC = (() => { const c = [0]; HW.forEach(w => c.push(c[c.length - 1] + w)); return c.map(v => v / c[24]); })();
+const curve = m => { const h = Math.min(23, Math.floor(m / 60)), f = (m - h * 60) / 60; return HC[h] + (HC[h + 1] - HC[h]) * f; };
+const curveInv = p => { let h = 0; while (h < 23 && HC[h + 1] < p) h++; const f = (p - HC[h]) / ((HC[h + 1] - HC[h]) || 1); return Math.min(1439, (h + Math.max(0, Math.min(1, f))) * 60); };
+const nowMin = () => { const n = new Date(); return n.getHours() * 60 + n.getMinutes() + n.getSeconds() / 60; };
+const fullCache = {}, timeCache = {};
+function fullDay(ds) {
+  if (fullCache[ds]) return fullCache[ds];
   const r = rng('day' + ds), d = new Date(ds + 'T12:00:00'), wd = d.getDay();
-  let frac = 1;
-  if (ds === today()) { const n = new Date(); frac = Math.max(.04, (n.getHours() * 60 + n.getMinutes()) / 1440); }
-  if (ds > today()) frac = 0;
-  const base = C.monthBudget / 30.4 * (wd === 0 ? .86 : wd === 6 ? .93 : 1.03) * noise(r, .1) * frac;
+  const base = C.monthBudget / 30.4 * (wd === 0 ? .86 : wd === 6 ? .93 : 1.03) * noise(r, .1);
   const ads = [];
   C.campaigns.forEach(c => {
     const cs = base * c.share * noise(r, .14);
@@ -65,7 +68,7 @@ function genDay(ds) {
       const cpl = c.cpl * a.cplM * noise(r, .16);
       const leads = sround(spend / cpl, r);
       const qual = Math.min(leads, sround(leads * c.q * a.qM * noise(r, .1), r));
-      const contacted = Math.min(leads, sround(leads * (.87 + r() * .09), r));
+      const contacted = Math.min(leads, Math.max(qual, sround(leads * (.87 + r() * .09), r)));
       const sales = Math.min(qual, sround(leads * c.conv * a.cvM * noise(r, .25), r));
       const revenue = sales * c.check * (.85 + r() * .3);
       const clicks = Math.round(leads / (.085 + r() * .05));
@@ -74,7 +77,28 @@ function genDay(ds) {
       ads.push({ camp: c.id, ad: a.id, spend, leads, qual, contacted, sales, revenue, clicks, impr, calls });
     });
   });
-  return (dayCache[ds] = { ds, ads });
+  return (fullCache[ds] = { ds, ads });
+}
+// har bir lid qaysi daqiqada kelgani (kun ichida)
+function leadTimes(ds, a) {
+  const k = ds + a.ad; if (timeCache[k]) return timeCache[k];
+  const r = rng('t' + k), n = a.leads, t = [];
+  for (let i = 0; i < n; i++) t.push(curveInv((i + r()) / n));
+  return (timeCache[k] = t);
+}
+function genDay(ds) {
+  const t = today();
+  if (ds < t) return fullDay(ds);
+  if (ds > t) return { ds, ads: [] };
+  const F = fullDay(ds), now = nowMin(), cv = curve(now);
+  return { ds, ads: F.ads.map(a => {
+    const cnt = leadTimes(ds, a).filter(m => m <= now).length, k = a.leads ? cnt / a.leads : cv;
+    // sotuv lid kelgandan keyin biroz kechikib yopiladi
+    const ks = a.leads ? leadTimes(ds, a).filter(m => m <= now - 90).length / a.leads : 0;
+    const sales = Math.floor(a.sales * ks);
+    return { camp: a.camp, ad: a.ad, spend: a.spend * cv, leads: cnt, qual: Math.floor(a.qual * k), contacted: Math.floor(a.contacted * Math.max(0, k - .004)),
+      sales, revenue: a.sales ? a.revenue * sales / a.sales : 0, clicks: Math.floor(a.clicks * cv), impr: Math.floor(a.impr * cv), calls: Math.floor(a.calls * k) };
+  }) };
 }
 const ZERO = () => ({ spend: 0, leads: 0, qual: 0, contacted: 0, sales: 0, revenue: 0, clicks: 0, impr: 0, calls: 0 });
 const addTo = (t, a) => { for (const k in t) t[k] += a[k] || 0; return t; };
@@ -188,7 +212,7 @@ function delta(m, cur, prev) {
 function kpiCards(A, P) {
   const map = Object.fromEntries(allMetrics().map(m => [m.key, m]));
   return `<div class="kpis">${CFG.metrics.filter(k => map[k]).map(k => { const m = map[k], v = m.f(A.tot), pv = m.f(P.tot);
-    return `<div class="kpi" title="${esc(m.hint)}"><div class="k">${esc(m.label)}${m.custom ? ' <span class="tagc">o\'zim</span>' : ''}</div><div class="v num">${FMT[m.fmt](v)}</div>${delta(m, v, pv)}</div>`; }).join('')}</div>`;
+    return `<div class="kpi" title="${esc(m.hint)}"><div class="k">${esc(m.label)}${m.custom ? ' <span class="tagc">o\'zim</span>' : ''}</div><div class="v num" data-k="${esc(m.key)}">${FMT[m.fmt](v)}</div>${delta(m, v, pv)}</div>`; }).join('')}</div>`;
 }
 function verdictOf(cpl) {
   const t = CFG.targetCpl;
@@ -266,10 +290,11 @@ function vUmumiy() {
   <div class="card"><div class="hero">${speedo(cpl)}<div>
     <div class="verdict"><i style="background:${vc}"></i>${vt}</div>
     <div class="big">
-      <div><div class="v num">${money(t.spend)}</div><div class="k">reklamaga sarflandi</div></div>
-      <div><div class="v num">${int(t.leads)}</div><div class="k">lid keldi · ${pct(div(t.qual, t.leads))} sifatli</div></div>
-      <div><div class="v num">${int(t.sales)}</div><div class="k">sotuv · ${money(t.revenue)}</div></div>
+      <div><div class="v num" data-k="h-sp">${money(t.spend)}</div><div class="k">reklamaga sarflandi</div></div>
+      <div><div class="v num" data-k="h-ld">${int(t.leads)}</div><div class="k">lid keldi · ${pct(div(t.qual, t.leads))} sifatli</div></div>
+      <div><div class="v num" data-k="h-sl">${int(t.sales)}</div><div class="k">sotuv · ${money(t.revenue)}</div></div>
     </div>
+    ${PERIOD !== 'today' ? (() => { const d = aggregate(today(), today()).tot; return `<div class="todayl"><span class="dot"></span>Bugun hozirgacha: <b data-k="t-ld">${int(d.leads)}</b> lid · <b data-k="t-sp">${money(d.spend)}</b> sarf · <b data-k="t-sl">${int(d.sales)}</b> sotuv</div>`; })() : ''}
     <p class="cap" style="margin:14px 0 0">Har 1 ${cur} reklama ${x(div(t.revenue, t.spend))} sotuv olib keldi. Bitta sotuv ${money(div(t.spend, t.sales))} ga tushdi.</p>
   </div></div></div>
   <div class="mt">${kpiCards(A, P)}</div>
@@ -309,28 +334,26 @@ const MODELS = { iPhone: ['iPhone 17 Pro 256GB', 'iPhone 17 Pro Max', 'iPhone 16
 const BADR = [['Faqat narx so\'radi', .34], ['Javob bermadi (3 marta)', .27], ['Boshqa viloyatdan', .16], ['Raqam xato', .12], ['Bo\'lib to\'lashga mos emas', .11]];
 const ST = { new: ['Yangi', 'p-acc'], cont: ["Bog'lanildi", 'p-mut'], qual: ['Sifatli', 'p-warn'], sale: ['Sotildi', 'p-good'], bad: ['Sifatsiz', 'p-bad'] };
 function leadList(from, to, limit = 400) {
-  const out = [], nowM = new Date().getHours() * 60 + new Date().getMinutes();
+  const out = [], nowM = nowMin(), T = today();
   for (let ds = to; ds >= from && out.length < limit; ds = addDays(ds, -1)) {
-    const g = genDay(ds), day = [];
-    g.ads.forEach(a => {
+    const F = fullDay(ds), day = [];
+    F.ads.forEach(a => {
       const c = C.campaigns.find(k => k.id === a.camp), ad = ADW[a.camp].find(k => k.id === a.ad);
+      const times = leadTimes(ds, a), pS = a.leads ? a.sales / a.leads : 0, pQ = a.leads ? a.qual / a.leads : 0, pC = a.leads ? a.contacted / a.leads : 0;
       for (let i = 0; i < a.leads; i++) {
-        const r = rng(ds + a.ad + i);
-        const isToday = ds === today();
-        let m = isToday ? Math.floor(r() * nowM) : Math.floor(480 + Math.pow(r(), .9) * 900);
-        if (m > 1439) m = 1439;
-        const u = i / Math.max(1, a.leads);
-        let st = i < a.sales ? 'sale' : i < a.qual ? 'qual' : i < a.contacted ? 'bad' : 'cont';
-        if (st === 'cont' && r() < .5) st = 'bad';
+        const m = times[i], isToday = ds === T;
+        if (isToday && m > nowM) break;
+        const r = rng(ds + a.ad + i), z = r();
+        let st = z < pS ? 'sale' : z < pQ ? 'qual' : z < pC ? 'bad' : (r() < .5 ? 'bad' : 'cont');
         const age = isToday ? nowM - m : 9999;
-        const sel = (() => { let z = r(), k = 0; for (; k < SW.length - 1; k++) { z -= SW[k].share; if (z < 0) break; } return SW[k]; })();
+        const sel = (() => { let y = r(), k = 0; for (; k < SW.length - 1; k++) { y -= SW[k].share; if (y < 0) break; } return SW[k]; })();
         const resp = sel.resp * (.3 + r() * 1.6);
-        if (isToday && age < resp) st = 'new';
-        if (isToday && st === 'sale' && age < 120) st = 'qual';
-        day.push({ ds, m, name: NAMES[Math.floor(r() * NAMES.length)], phone: '+998 9' + Math.floor(r() * 10) + ' *** ** ' + pad(Math.floor(r() * 100)),
+        if (age < resp) st = 'new';
+        else if (st === 'sale' && age < 90) st = 'qual';
+        else if (st === 'bad' && age < resp + 6) st = 'cont';
+        day.push({ id: ds + a.ad + i, ds, m: Math.floor(m), age, name: NAMES[Math.floor(r() * NAMES.length)], phone: '+998 9' + Math.floor(r() * 10) + ' *** ** ' + pad(Math.floor(r() * 100)),
           model: MODELS[c.product][Math.floor(r() * MODELS[c.product].length)], camp: c.name, ad: ad.name, seller: sel.name, resp: st === 'new' ? null : resp, st,
           why: st === 'bad' ? BADR[Math.floor(Math.pow(r(), 1.3) * BADR.length)][0] : '' });
-        void u;
       }
     });
     day.sort((p, q) => q.m - p.m);
@@ -365,7 +388,7 @@ function vLidlar() {
       <select class="in" id="lcamp"><option value="">Barcha kampaniyalar</option>${C.campaigns.map(c => `<option ${lf.camp === c.name ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
     </div>
     <div class="tw"><table><thead><tr><th>Vaqt</th><th>Mijoz</th><th>Qiziqish</th><th>Kampaniya</th><th>Sotuvchi</th><th class="r">Javob</th><th>Holat</th></tr></thead><tbody>
-    ${F.slice(0, lshow).map(l => `<tr><td class="num">${human(l.ds)} ${pad(Math.floor(l.m / 60))}:${pad(l.m % 60)}</td><td><b>${l.name}</b><div class="fl num" style="font-size:12px">${l.phone}</div></td><td>${esc(l.model)}</td><td><span style="font-size:12.5px">${esc(l.camp)}</span><div class="fl" style="font-size:12px">${esc(l.ad)}</div></td><td>${l.seller}</td><td class="r num">${l.resp == null ? '<span class="dn">kutmoqda</span>' : mins(l.resp)}</td><td><span class="pill ${ST[l.st][1]}">${ST[l.st][0]}</span>${l.why ? `<div class="fl" style="font-size:11.5px">${esc(l.why)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="fl">Hech narsa topilmadi</td></tr>'}
+    ${F.slice(0, lshow).map(l => `<tr><td class="num">${l.age < 3 ? '<span class="pill p-acc">hozirgina</span>' : l.age < 60 ? Math.floor(l.age) + ' daq oldin' : human(l.ds) + ' ' + pad(Math.floor(l.m / 60)) + ':' + pad(l.m % 60)}</td><td><b>${l.name}</b><div class="fl num" style="font-size:12px">${l.phone}</div></td><td>${esc(l.model)}</td><td><span style="font-size:12.5px">${esc(l.camp)}</span><div class="fl" style="font-size:12px">${esc(l.ad)}</div></td><td>${l.seller}</td><td class="r num">${l.resp == null ? '<span class="dn">kutmoqda</span>' : mins(l.resp)}</td><td><span class="pill ${ST[l.st][1]}">${ST[l.st][0]}</span>${l.why ? `<div class="fl" style="font-size:11.5px">${esc(l.why)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="fl">Hech narsa topilmadi</td></tr>'}
     </tbody></table></div>
     ${F.length > lshow ? `<div style="text-align:center;margin-top:12px"><button class="btn g" id="more">Yana ko'rsatish (${F.length - lshow})</button></div>` : ''}
   </div>`;
@@ -495,7 +518,10 @@ function vTaqdimot() {
 }
 
 /* ---------- render ---------- */
-async function render() {
+async function render(live) {
+  const before = {};
+  if (live) document.querySelectorAll('#view [data-k]').forEach(e => before[e.dataset.k] = e.textContent);
+  document.body.classList.toggle('noanim', !!live);
   const h = (location.hash || '').slice(1);
   if (!USER) {
     if (h === 'taqdimot') { $('#login').hidden = true; $('#app').hidden = true; const po = $('#pitchOnly'); po.hidden = false;
@@ -513,7 +539,28 @@ async function render() {
   const V = { umumiy: vUmumiy, kampaniyalar: vKampaniyalar, lidlar: vLidlar, sotuvchilar: vSotuvchilar, sozlamalar: vSozlamalar, taqdimot: vTaqdimot };
   $('#view').innerHTML = TAB === 'sozlamalar' ? vSozlamalar(await users()) : V[TAB]() + '<div class="foot">Demo ma\'lumot · ' + esc(CFG.brand) + '</div>';
   setMsg = {};
+  if (live) document.querySelectorAll('#view [data-k]').forEach(e => { if (before[e.dataset.k] != null && before[e.dataset.k] !== e.textContent) e.classList.add('bump'); });
+  stamp();
 }
+const stamp = () => { const e = $('#livet'); if (e) { const n = new Date(); e.textContent = pad(n.getHours()) + ':' + pad(n.getMinutes()) + ':' + pad(n.getSeconds()); } };
+
+/* ---------- jonli rejim ---------- */
+let seen = null;
+function toast(l) {
+  const box = $('#toasts'); if (!box) return;
+  const el = document.createElement('div'); el.className = 'toast';
+  el.innerHTML = `<span class="dot"></span><div><b>Yangi lid: ${esc(l.name)}</b><small>${esc(l.model)} · ${esc(l.camp)}</small></div>`;
+  box.appendChild(el); setTimeout(() => el.classList.add('out'), 5200); setTimeout(() => el.remove(), 5800);
+}
+function tick() {
+  if (!USER || document.hidden) return;
+  const top = leadList(today(), today(), 6);
+  if (seen) top.filter(l => !seen.has(l.id)).slice(0, 2).reverse().forEach(toast);
+  seen = new Set(top.map(l => l.id).concat(seen ? [...seen] : []));
+  const a = document.activeElement, typing = a && /INPUT|SELECT|TEXTAREA/.test(a.tagName);
+  if (['umumiy', 'kampaniyalar', 'lidlar', 'sotuvchilar'].includes(TAB) && !typing) render(true); else stamp();
+}
+setInterval(tick, 15000);
 
 /* ---------- hodisalar ---------- */
 $('#lform').addEventListener('submit', async e => {

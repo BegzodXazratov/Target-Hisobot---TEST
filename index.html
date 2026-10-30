@@ -198,6 +198,20 @@ tr.sub td:first-child{padding-left:26px}
 .pack .btn{display:inline-block;text-decoration:none;margin-top:12px}
 .pack .muted{opacity:.7;font-size:14px}
 .toplink{display:flex;align-items:center;gap:10px;padding-block:14px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block;flex:none;box-shadow:0 0 0 0 color-mix(in srgb,var(--good) 60%,transparent);animation:pulse 1.8s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.livei{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--sub)}
+@media (max-width:520px){.livei{display:none}}
+.todayl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;font-size:13.5px;color:var(--sub)}
+.todayl b{color:var(--ink)}
+.noanim .ndl{animation:none}
+.bump{animation:bump 1.6s ease-out}
+@keyframes bump{0%{color:var(--good);text-shadow:0 0 12px color-mix(in srgb,var(--good) 45%,transparent)}100%{}}
+#toasts{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));display:grid;gap:8px;z-index:50;max-width:calc(100vw - 32px)}
+.toast{display:flex;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:11px 14px;box-shadow:0 8px 24px rgba(0,0,0,.14);font-size:14px;animation:tin .35s ease-out;transition:opacity .5s,transform .5s}
+.toast small{display:block;color:var(--sub);font-size:12.5px}
+.toast.out{opacity:0;transform:translateY(8px)}
+@keyframes tin{from{opacity:0;transform:translateY(12px)}}
 .foot{color:var(--mut);font-size:12.5px;text-align:center;padding-block:24px}
 </style>
 </head>
@@ -223,7 +237,7 @@ tr.sub td:first-child{padding-left:26px}
       <div class="bar1">
         <div class="logo" id="hlogo">i</div>
         <div class="bname" id="hbrand"></div>
-        <span class="chip">DEMO</span>
+        <span class="chip">DEMO</span><span class="livei"><span class="dot"></span>Jonli · <span id="livet" class="num">—</span></span>
         <div class="sp"></div>
         <div class="who"><span id="whoami"></span><button class="btn g s" id="logout">Chiqish</button></div>
       </div>
@@ -234,6 +248,7 @@ tr.sub td:first-child{padding-left:26px}
 </div>
 
 <div id="pitchOnly" hidden></div>
+<div id="toasts" aria-live="polite"></div>
 
 <script src="config.js"></script>
 <script src="app.js"></script>
