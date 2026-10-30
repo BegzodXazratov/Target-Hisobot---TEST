@@ -1,0 +1,597 @@
+/* Target Hisobot — demo. Barcha raqamlar config.js asosida yaratiladi. */
+(() => {
+'use strict';
+const C = window.CLIENT;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const KEY = 'th:' + C.brand.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(KEY + ':' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(KEY + ':' + k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(KEY + ':' + k); } catch {} }
+};
+const sess = {
+  get() { try { return JSON.parse(sessionStorage.getItem(KEY + ':s') || localStorage.getItem(KEY + ':s') || 'null'); } catch { return null; } },
+  set(v, remember) { try { sessionStorage.setItem(KEY + ':s', JSON.stringify(v)); if (remember) localStorage.setItem(KEY + ':s', JSON.stringify(v)); } catch {} },
+  clear() { try { sessionStorage.removeItem(KEY + ':s'); localStorage.removeItem(KEY + ':s'); } catch {} }
+};
+
+/* ---------- formatlash ---------- */
+const sep = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const cur = C.currency || '$';
+const money = n => n == null || !isFinite(n) ? '—' : (Math.abs(n) < 100 ? cur + n.toFixed(2) : cur + sep(n));
+const int = n => n == null || !isFinite(n) ? '—' : sep(n);
+const pct = n => n == null || !isFinite(n) ? '—' : (n * 100).toFixed(n < .1 ? 1 : 0) + '%';
+const mins = n => n == null || !isFinite(n) ? '—' : n < 60 ? Math.round(n) + ' daq' : (n / 60).toFixed(1) + ' soat';
+const x = n => n == null || !isFinite(n) ? '—' : n.toFixed(1) + '×';
+const FMT = { money, int, pct, mins, x, num: n => n == null || !isFinite(n) ? '—' : (Math.abs(n) < 100 ? n.toFixed(2) : sep(n)) };
+
+/* ---------- seeded tasodif ---------- */
+function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function rng(seed) { let a = hash(String(seed)); return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const noise = (r, amp) => 1 + (r() * 2 - 1) * amp;
+const sround = (v, r) => { const f = Math.floor(v); return f + (r() < v - f ? 1 : 0); };
+
+/* ---------- sanalar ---------- */
+const pad = n => String(n).padStart(2, '0');
+const dstr = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const addDays = (s, k) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + k); return dstr(d); };
+const today = () => dstr(new Date());
+const MON = ['yan', 'fev', 'mar', 'apr', 'may', 'iyun', 'iyul', 'avg', 'sen', 'okt', 'noy', 'dek'];
+const human = s => { const d = new Date(s + 'T12:00:00'); return d.getDate() + '-' + MON[d.getMonth()]; };
+
+/* ---------- demo ma'lumot ---------- */
+const ADW = {}; // har bir reklamaning doimiy "kuchi"
+C.campaigns.forEach(c => {
+  const names = C.ads[c.id] || ['Reklama 1'];
+  const r = rng('ad' + c.id);
+  const w = names.map(() => .5 + r()), sw = w.reduce((a, b) => a + b, 0);
+  ADW[c.id] = names.map((n, i) => ({ id: c.id + '-' + i, name: n, w: w[i] / sw, cplM: .82 + r() * .4, qM: .9 + r() * .2, cvM: .85 + r() * .3 }));
+});
+const SW = (() => { const s = C.sellers, t = s.reduce((a, b) => a + b.share, 0); return s.map(x => ({ ...x, share: x.share / t })); })();
+const dayCache = {};
+function genDay(ds) {
+  if (dayCache[ds]) return dayCache[ds];
+  const r = rng('day' + ds), d = new Date(ds + 'T12:00:00'), wd = d.getDay();
+  let frac = 1;
+  if (ds === today()) { const n = new Date(); frac = Math.max(.04, (n.getHours() * 60 + n.getMinutes()) / 1440); }
+  if (ds > today()) frac = 0;
+  const base = C.monthBudget / 30.4 * (wd === 0 ? .86 : wd === 6 ? .93 : 1.03) * noise(r, .1) * frac;
+  const ads = [];
+  C.campaigns.forEach(c => {
+    const cs = base * c.share * noise(r, .14);
+    ADW[c.id].forEach(a => {
+      const spend = cs * a.w * noise(r, .12);
+      const cpl = c.cpl * a.cplM * noise(r, .16);
+      const leads = sround(spend / cpl, r);
+      const qual = Math.min(leads, sround(leads * c.q * a.qM * noise(r, .1), r));
+      const contacted = Math.min(leads, sround(leads * (.87 + r() * .09), r));
+      const sales = Math.min(qual, sround(leads * c.conv * a.cvM * noise(r, .25), r));
+      const revenue = sales * c.check * (.85 + r() * .3);
+      const clicks = Math.round(leads / (.085 + r() * .05));
+      const impr = Math.round(clicks / (.011 + r() * .006));
+      const calls = sround(leads * (.12 + r() * .08), r);
+      ads.push({ camp: c.id, ad: a.id, spend, leads, qual, contacted, sales, revenue, clicks, impr, calls });
+    });
+  });
+  return (dayCache[ds] = { ds, ads });
+}
+const ZERO = () => ({ spend: 0, leads: 0, qual: 0, contacted: 0, sales: 0, revenue: 0, clicks: 0, impr: 0, calls: 0 });
+const addTo = (t, a) => { for (const k in t) t[k] += a[k] || 0; return t; };
+function aggregate(from, to) {
+  const tot = ZERO(), byDay = [], byCamp = {}, byAd = {};
+  for (let ds = from; ds <= to; ds = addDays(ds, 1)) {
+    const g = genDay(ds), dt = ZERO();
+    g.ads.forEach(a => { addTo(tot, a); addTo(dt, a); addTo(byCamp[a.camp] ||= ZERO(), a); addTo(byAd[a.ad] ||= ZERO(), a); });
+    byDay.push({ ds, ...dt });
+  }
+  // sotuvchilar
+  const r = rng('sel' + from + to);
+  const cw = SW.map(s => s.share * s.conv), cws = cw.reduce((a, b) => a + b, 0);
+  const sellers = SW.map((s, i) => {
+    const leads = Math.round(tot.leads * s.share), sales = Math.round(tot.sales * cw[i] / cws);
+    return { name: s.name, leads, qual: Math.round(tot.qual * s.share * (.95 + r() * .1)), sales, revenue: tot.sales ? tot.revenue * sales / tot.sales : 0,
+      resp: s.resp * (.85 + r() * .3), fast: Math.max(.05, Math.min(.97, 1.08 - s.resp / 22 + (r() - .5) * .06)) };
+  });
+  tot.resp = tot.leads ? sellers.reduce((a, s) => a + s.resp * s.leads, 0) / tot.leads : null;
+  return { tot, byDay, byCamp, byAd, sellers };
+}
+
+/* ---------- metrikalar kutubxonasi ---------- */
+const div = (a, b) => b ? a / b : null;
+const METRICS = [
+  { key: 'spend', label: 'Reklama sarfi', fmt: 'money', f: t => t.spend, good: 0, hint: 'Meta Ads' },
+  { key: 'leads', label: 'Lidlar', fmt: 'int', f: t => t.leads, good: 1, hint: 'Formadan kelgan arizalar' },
+  { key: 'cpl', label: 'Lid narxi', fmt: 'money', f: t => div(t.spend, t.leads), good: -1, hint: 'Sarf ÷ lid' },
+  { key: 'qrate', label: 'Sifatli lid ulushi', fmt: 'pct', f: t => div(t.qual, t.leads), good: 1, hint: 'CRM: sotuvchi "sifatli" degan' },
+  { key: 'qual', label: 'Sifatli lidlar', fmt: 'int', f: t => t.qual, good: 1, hint: 'CRM' },
+  { key: 'cpql', label: 'Sifatli lid narxi', fmt: 'money', f: t => div(t.spend, t.qual), good: -1, hint: 'Sarf ÷ sifatli lid' },
+  { key: 'sales', label: 'Sotuvlar', fmt: 'int', f: t => t.sales, good: 1, hint: 'CRM: "Sotildi" bosqichi' },
+  { key: 'conv', label: 'Lid → sotuv', fmt: 'pct', f: t => div(t.sales, t.leads), good: 1, hint: 'Sotuv ÷ lid' },
+  { key: 'cps', label: 'Bitta sotuv narxi', fmt: 'money', f: t => div(t.spend, t.sales), good: -1, hint: 'Sarf ÷ sotuv' },
+  { key: 'revenue', label: 'Sotuv summasi', fmt: 'money', f: t => t.revenue, good: 1, hint: 'CRM: bitim summasi' },
+  { key: 'roas', label: 'ROAS', fmt: 'x', f: t => div(t.revenue, t.spend), good: 1, hint: 'Sotuv summasi ÷ sarf' },
+  { key: 'check', label: "O'rtacha chek", fmt: 'money', f: t => div(t.revenue, t.sales), good: 1, hint: 'Summa ÷ sotuv' },
+  { key: 'contact', label: "Bog'lanilgan lidlar", fmt: 'pct', f: t => div(t.contacted, t.leads), good: 1, hint: "Sotuvchi qo'ng'iroq qilgan" },
+  { key: 'resp', label: "O'rtacha javob vaqti", fmt: 'mins', f: t => t.resp, good: -1, hint: 'Lid tushgandan birinchi qo\'ng\'iroqqacha' },
+  { key: 'calls', label: "Saytda qo'ng'iroq bosildi", fmt: 'int', f: t => t.calls, good: 1, hint: 'Pixel: Contact' },
+  { key: 'ctr', label: 'CTR', fmt: 'pct', f: t => div(t.clicks, t.impr), good: 1, hint: 'Klik ÷ ko\'rish' },
+  { key: 'cpc', label: 'Klik narxi', fmt: 'money', f: t => div(t.spend, t.clicks), good: -1, hint: 'Sarf ÷ klik' },
+  { key: 'cpm', label: '1000 ko\'rish narxi', fmt: 'money', f: t => div(t.spend * 1000, t.impr), good: -1, hint: 'CPM' },
+  { key: 'impr', label: "Ko'rishlar", fmt: 'int', f: t => t.impr, good: 1, hint: 'Meta Ads' },
+  { key: 'clicks', label: 'Kliklar', fmt: 'int', f: t => t.clicks, good: 1, hint: 'Meta Ads' }
+];
+const DEFAULT_METRICS = ['spend', 'leads', 'cpl', 'qrate', 'sales', 'conv', 'cps', 'revenue'];
+const VARS = { sarf: 'spend', lid: 'leads', sifatli: 'qual', boglanildi: 'contacted', sotuv: 'sales', daromad: 'revenue', klik: 'clicks', korish: 'impr', qongiroq: 'calls' };
+function compileFormula(src) {
+  const s = String(src || '').toLowerCase().trim();
+  if (!s || s.length > 120 || !/^[a-z0-9_.+\-*/()\s]+$/.test(s)) return null;
+  const words = s.match(/[a-z_]+/g) || [];
+  if (words.some(w => !(w in VARS))) return null;
+  try {
+    const fn = new Function(...Object.keys(VARS), '"use strict";return (' + s + ');');
+    fn(...Object.keys(VARS).map(() => 1));
+    return t => { const v = fn(...Object.values(VARS).map(k => t[k] || 0)); return isFinite(v) ? v : null; };
+  } catch { return null; }
+}
+
+/* ---------- holat ---------- */
+let CFG = Object.assign({ brand: C.brand, accent: C.accent, targetCpl: C.targetCpl, metrics: DEFAULT_METRICS.slice(), custom: [] }, store.get('cfg', {}));
+const saveCfg = () => { store.set('cfg', CFG); applyBrand(); };
+let USER = null;
+let PERIOD = store.get('period', '30');
+let TAB = 'umumiy';
+
+function allMetrics() {
+  return METRICS.concat(CFG.custom.map(m => ({ key: m.id, label: m.name, fmt: m.fmt, f: compileFormula(m.formula) || (() => null), good: 0, hint: m.formula, custom: true })));
+}
+function applyBrand() {
+  document.documentElement.style.setProperty('--acc', CFG.accent);
+  const L = (C.logoText || CFG.brand[0] || 'H').toUpperCase();
+  ['#llogo', '#hlogo'].forEach(s => { const e = $(s); if (e) e.textContent = L; });
+  $('#lbrand').textContent = CFG.brand;
+  $('#hbrand').innerHTML = esc(CFG.brand) + '<small>' + esc(C.tagline) + '</small>';
+  document.title = CFG.brand + ' — hisobot';
+}
+
+/* ---------- parol (SHA-256) ---------- */
+async function sha(s) {
+  try { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''); }
+  catch { return 'f' + hash(s).toString(16) + hash(s + '#').toString(16); }
+}
+const passHash = (login, p) => sha(KEY + '|' + login.toLowerCase() + '|' + p);
+async function users() {
+  let u = store.get('users', null);
+  if (!u || !u.length) { u = [{ login: C.defaultLogin, name: 'Administrator', role: 'admin', hash: await passHash(C.defaultLogin, C.defaultPassword) }]; store.set('users', u); }
+  return u;
+}
+
+/* ---------- davr ---------- */
+const PERIODS = [['today', 'Bugun'], ['yest', 'Kecha'], ['7', '7 kun'], ['30', '30 kun'], ['month', 'Bu oy'], ['90', '90 kun']];
+function range(p = PERIOD) {
+  const t = today();
+  if (p === 'today') return { from: t, to: t, prev: { from: addDays(t, -1), to: addDays(t, -1) } };
+  if (p === 'yest') { const y = addDays(t, -1); return { from: y, to: y, prev: { from: addDays(y, -1), to: addDays(y, -1) } }; }
+  if (p === 'month') { const f = t.slice(0, 8) + '01', n = Math.round((new Date(t) - new Date(f)) / 864e5); return { from: f, to: t, prev: { from: addDays(f, -n - 1), to: addDays(f, -1) } }; }
+  const n = +p; return { from: addDays(t, -(n - 1)), to: t, prev: { from: addDays(t, -(2 * n - 1)), to: addDays(t, -n) } };
+}
+const pLabel = () => (PERIODS.find(p => p[0] === PERIOD) || [0, ''])[1];
+
+/* ---------- komponentlar ---------- */
+function delta(m, cur, prev) {
+  if (cur == null || prev == null || !prev) return '<div class="d fl">—</div>';
+  const ch = (cur - prev) / Math.abs(prev);
+  if (Math.abs(ch) < .005) return '<div class="d fl">o\'zgarmadi</div>';
+  const better = m.good === 0 ? null : (ch > 0) === (m.good > 0);
+  return `<div class="d ${better == null ? 'fl' : better ? 'up' : 'dn'}">${ch > 0 ? '▲' : '▼'} ${Math.abs(ch * 100).toFixed(0)}% <span class="fl" style="font-weight:600">oldingi davrga</span></div>`;
+}
+function kpiCards(A, P) {
+  const map = Object.fromEntries(allMetrics().map(m => [m.key, m]));
+  return `<div class="kpis">${CFG.metrics.filter(k => map[k]).map(k => { const m = map[k], v = m.f(A.tot), pv = m.f(P.tot);
+    return `<div class="kpi" title="${esc(m.hint)}"><div class="k">${esc(m.label)}${m.custom ? ' <span class="tagc">o\'zim</span>' : ''}</div><div class="v num">${FMT[m.fmt](v)}</div>${delta(m, v, pv)}</div>`; }).join('')}</div>`;
+}
+function verdictOf(cpl) {
+  const t = CFG.targetCpl;
+  if (cpl == null) return ['Ma\'lumot hali kam', 'var(--mut)'];
+  if (cpl <= t) return ['Lid narxi maqsaddan arzon', 'var(--good)'];
+  if (cpl <= t * 1.3) return ['Lid narxi maqsadga yaqin', 'var(--warn)'];
+  return ['Lid narxi qimmat — tekshirish kerak', 'var(--bad)'];
+}
+function speedo(cpl) {
+  const tgt = CFG.targetCpl, cx = 140, cy = 140, r = 108;
+  const P = (t, rr = r) => [cx - rr * Math.cos(Math.PI * t), cy - rr * Math.sin(Math.PI * t)];
+  const arc = (a, b, c) => { const [x1, y1] = P(a), [x2, y2] = P(b); return `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} A${r} ${r} 0 0 1 ${x2.toFixed(1)} ${y2.toFixed(1)}" stroke="${c}" stroke-width="16" fill="none" stroke-linecap="butt"/>`; };
+  const f = cpl == null ? 0 : Math.min(cpl / (tgt * 2), 1), deg = -90 + 180 * f;
+  const col = verdictOf(cpl)[1];
+  let ticks = '';
+  for (let i = 0; i <= 20; i++) { const t = i / 20, [a, b] = P(t, r - 12), [c, d] = P(t, i % 5 ? r - 20 : r - 26); ticks += `<line x1="${a.toFixed(1)}" y1="${b.toFixed(1)}" x2="${c.toFixed(1)}" y2="${d.toFixed(1)}" stroke="var(--mut)" stroke-width="${i % 5 ? 1 : 2}" opacity=".55"/>`; }
+  const lab = (t, s) => { const end = t === 0 || t === 1; const [lx, ly] = end ? [cx - r * Math.cos(Math.PI * t), cy + 22] : [P(t, r + 18)[0], P(t, r + 18)[1] + 4];
+    return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" style="font-size:12px;fill:var(--mut)">${s}</text>`; };
+  return `<div class="speedo"><svg viewBox="0 0 280 200" role="img" aria-label="Lid narxi ${money(cpl)}, maqsad ${money(tgt)}">
+    ${arc(0, .5, 'var(--good)')}${arc(.5, .65, 'var(--warn)')}${arc(.65, 1, 'var(--bad)')}${ticks}
+    ${lab(0, cur + '0')}${lab(.5, 'maqsad ' + money(tgt))}${lab(1, money(tgt * 2) + '+')}
+    <g class="ndl" style="--a:${deg}deg"><line x1="${cx}" y1="${cy + 14}" x2="${cx}" y2="${cy - r + 8}" stroke="var(--ink)" stroke-width="4" stroke-linecap="round"/></g>
+    <circle cx="${cx}" cy="${cy}" r="9" fill="var(--ink)"/><circle cx="${cx}" cy="${cy}" r="3.5" fill="var(--card)"/>
+    <text x="${cx}" y="${cy + 50}" text-anchor="middle" style="font-size:36px;font-weight:800;fill:${col};letter-spacing:-1px">${money(cpl)}</text>
+    <text x="${cx}" y="${cy + 70}" text-anchor="middle" style="font-size:12px;fill:var(--mut)">o'rtacha lid narxi</text>
+  </svg></div>`;
+}
+function dayChart(days, mode) {
+  const W = 760, H = 230, L = 40, R = 40, T = 14, B = 26, n = days.length;
+  if (!n) return '';
+  const val = d => mode === 'sales' ? d.sales : mode === 'spend' ? d.spend : d.leads;
+  const max = Math.max(1, ...days.map(val)) * 1.12;
+  const cpls = days.map(d => d.leads ? d.spend / d.leads : null), cmax = Math.max(CFG.targetCpl * 1.6, ...cpls.filter(v => v != null)) * 1.1;
+  const bw = (W - L - R) / n, y = v => T + (H - T - B) * (1 - v / max), yc = v => T + (H - T - B) * (1 - v / cmax);
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const v = max * i / 4, yy = y(v); g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="var(--line)"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end">${mode === 'spend' ? cur + sep(v) : sep(v)}</text>`; }
+  const step = Math.ceil(n / 8);
+  const bars = days.map((d, i) => { const v = val(d), h = (H - T - B) * v / max; return `<rect x="${(L + i * bw + bw * .16).toFixed(1)}" y="${(y(v)).toFixed(1)}" width="${Math.max(1, bw * .68).toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(4, bw * .2).toFixed(1)}" fill="var(--acc)" opacity=".85"><title>${human(d.ds)}: ${mode === 'spend' ? money(v) : int(v)}</title></rect>`
+    + (i % step === 0 || n <= 8 ? `<text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${human(d.ds)}</text>` : ''); }).join('');
+  let line = '';
+  if (mode === 'leads' && n > 1) {
+    const pts = cpls.map((v, i) => v == null ? null : [(L + i * bw + bw / 2).toFixed(1), yc(v).toFixed(1)]).filter(Boolean);
+    line = `<line x1="${L}" x2="${W - R}" y1="${yc(CFG.targetCpl)}" y2="${yc(CFG.targetCpl)}" stroke="var(--good)" stroke-dasharray="4 4"/><text x="${W - R + 4}" y="${yc(CFG.targetCpl) + 4}" style="fill:var(--good)">${money(CFG.targetCpl)}</text>`
+      + `<polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="var(--warn)" stroke-width="2.5" stroke-linejoin="round"/>`
+      + pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="${n > 40 ? 0 : 2.8}" fill="var(--warn)"/>`).join('');
+  }
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Kunlik grafik">${g}${bars}${line}</svg></div>
+  <div class="legend"><span><b style="background:var(--acc)"></b>${mode === 'sales' ? 'Sotuvlar' : mode === 'spend' ? 'Sarf' : 'Lidlar'}</span>${mode === 'leads' && n > 1 ? '<span><b style="background:var(--warn)"></b>Lid narxi</span><span><b style="background:var(--good)"></b>Maqsad narx</span>' : ''}</div>`;
+}
+function funnel(t) {
+  const st = [['Lidlar', t.leads, 'Formadan kelgan'], ["Bog'lanildi", t.contacted, "Sotuvchi qo'ng'iroq qildi"], ['Sifatli', t.qual, 'Real xaridor'], ['Sotildi', t.sales, 'Pul to\'landi']];
+  const m = Math.max(1, t.leads);
+  return `<div class="funnel">${st.map(([n, v, h], i) => `<div class="frow"><div class="t">${n}</div><div class="b" title="${h}"><i style="width:${(v / m * 100).toFixed(1)}%;opacity:${1 - i * .17}"></i></div><div class="n num">${int(v)}<small>${i ? pct(v / m) + ' lidlardan' : money(t.leads ? t.spend / t.leads : null) + ' / lid'}</small></div></div>`).join('')}</div>`;
+}
+const hbars = (rows, fmt) => { const m = Math.max(1e-9, ...rows.map(r => r[1])); return `<div class="hb">${rows.map(([t, v, s]) => `<div class="hbr"><span class="t">${esc(t)}</span><span class="n num">${fmt(v)}${s ? ` <span class="fl" style="font-weight:500">${s}</span>` : ''}</span><span class="b"><i style="width:${(v / m * 100).toFixed(1)}%"></i></span></div>`).join('')}</div>`; };
+function statusPill(cpl) {
+  const t = CFG.targetCpl;
+  if (cpl == null) return '<span class="pill p-mut">lid yo\'q</span>';
+  return cpl <= t ? '<span class="pill p-good">Yaxshi</span>' : cpl <= t * 1.3 ? '<span class="pill p-warn">O\'rtacha</span>' : '<span class="pill p-bad">Qimmat</span>';
+}
+const pbar = (title, withPeriod = true) => `<div class="pbar"><h2>${title}</h2>${withPeriod ? `<div class="seg" id="per">${PERIODS.map(([k, l]) => `<button data-p="${k}" class="${k === PERIOD ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}</div>`;
+
+/* ---------- bo'limlar ---------- */
+const TABS = [['umumiy', 'Umumiy'], ['kampaniyalar', 'Kampaniyalar'], ['lidlar', 'Lidlar'], ['sotuvchilar', 'Sotuvchilar'], ['sozlamalar', 'Sozlamalar', 'admin'], ['taqdimot', 'Tizim haqida', null, 'pitch']];
+let chartMode = 'leads';
+
+function vUmumiy() {
+  const R = range(), A = aggregate(R.from, R.to), P = aggregate(R.prev.from, R.prev.to), t = A.tot;
+  const cpl = div(t.spend, t.leads), [vt, vc] = verdictOf(cpl);
+  const ads = Object.entries(A.byAd).map(([id, a]) => { const [cid, i] = id.split('-'); return { name: ADW[cid][+i].name, camp: C.campaigns.find(c => c.id === cid).name, ...a }; }).filter(a => a.sales);
+  ads.sort((a, b) => a.spend / a.sales - b.spend / b.sales);
+  const prod = {}; C.campaigns.forEach(c => { const b = A.byCamp[c.id]; if (!b) return; (prod[c.product] ||= ZERO()); addTo(prod[c.product], b); });
+  const longDays = A.byDay.length > 1;
+  return pbar(pLabel() + ': hisobot') + `
+  <div class="card"><div class="hero">${speedo(cpl)}<div>
+    <div class="verdict"><i style="background:${vc}"></i>${vt}</div>
+    <div class="big">
+      <div><div class="v num">${money(t.spend)}</div><div class="k">reklamaga sarflandi</div></div>
+      <div><div class="v num">${int(t.leads)}</div><div class="k">lid keldi · ${pct(div(t.qual, t.leads))} sifatli</div></div>
+      <div><div class="v num">${int(t.sales)}</div><div class="k">sotuv · ${money(t.revenue)}</div></div>
+    </div>
+    <p class="cap" style="margin:14px 0 0">Har 1 ${cur} reklama ${x(div(t.revenue, t.spend))} sotuv olib keldi. Bitta sotuv ${money(div(t.spend, t.sales))} ga tushdi.</p>
+  </div></div></div>
+  <div class="mt">${kpiCards(A, P)}</div>
+  <div class="grid g2 mt">
+    ${longDays ? `<div class="card"><div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap"><div style="flex:1;min-width:160px"><h3>Kunlar kesimida</h3><p class="cap">Ustunga bosib turing — aniq raqam</p></div>
+      <div class="seg" id="cm">${[['leads', 'Lid'], ['spend', 'Sarf'], ['sales', 'Sotuv']].map(([k, l]) => `<button data-m="${k}" class="${k === chartMode ? 'on' : ''}">${l}</button>`).join('')}</div></div>${dayChart(A.byDay, chartMode)}</div>` : ''}
+    <div class="card"><h3>Sotuv voronkasi</h3><p class="cap">Lid kelgandan pul to'languncha — CRM ma'lumoti</p>${funnel(t)}</div>
+    <div class="card"><h3>Mahsulot bo'yicha sotuv</h3><p class="cap">Qaysi yo'nalish ko'proq pul olib kelyapti</p>${hbars(Object.entries(prod).map(([k, v]) => [k, v.revenue, int(v.sales) + ' ta']).sort((a, b) => b[1] - a[1]), money)}</div>
+    <div class="card"><h3>Eng foydali reklamalar</h3><p class="cap">Bitta sotuv eng arzon tushganlari</p><div class="tw"><table><thead><tr><th>Reklama</th><th class="r">Sotuv</th><th class="r">1 sotuv narxi</th></tr></thead><tbody>
+      ${ads.slice(0, 5).map((a, i) => `<tr><td><b>${i + 1}. ${esc(a.name)}</b><div class="fl" style="font-size:12px">${esc(a.camp)}</div></td><td class="r num">${int(a.sales)}</td><td class="r num"><b>${money(a.spend / a.sales)}</b></td></tr>`).join('') || '<tr><td colspan="3" class="fl">Bu davrda sotuv yo\'q</td></tr>'}
+    </tbody></table></div></div>
+  </div>`;
+}
+
+let openCamp = null;
+function vKampaniyalar() {
+  const R = range(), A = aggregate(R.from, R.to), t = A.tot;
+  const row = (name, a, extra = '') => { const cpl = div(a.spend, a.leads); return `<td class="r num">${money(a.spend)}</td><td class="r num">${int(a.leads)}</td><td class="r num"><b>${money(cpl)}</b></td><td class="r num">${pct(div(a.qual, a.leads))}</td><td class="r num">${int(a.sales)}</td><td class="r num">${pct(div(a.sales, a.leads))}</td><td class="r num">${money(div(a.spend, a.sales))}</td><td class="r num">${money(a.revenue)}</td><td class="r num">${x(div(a.revenue, a.spend))}</td>`; };
+  const camps = C.campaigns.map(c => ({ c, a: A.byCamp[c.id] || ZERO() })).sort((p, q) => q.a.spend - p.a.spend);
+  const best = camps.filter(p => p.a.sales).sort((p, q) => p.a.spend / p.a.sales - q.a.spend / q.a.sales)[0];
+  const worst = camps.filter(p => p.a.leads).sort((p, q) => q.a.spend / q.a.leads - p.a.spend / p.a.leads)[0];
+  return pbar('Kampaniyalar') + `
+  ${best && worst ? `<div class="note" style="margin-bottom:14px">Eng foydali: <b>${esc(best.c.name)}</b> — bitta sotuv ${money(best.a.spend / best.a.sales)}. Eng qimmat lid: <b>${esc(worst.c.name)}</b> — ${money(worst.a.spend / worst.a.leads)}. Qatorni bossangiz ichidagi reklamalar ochiladi.</div>` : ''}
+  <div class="card"><div class="tw"><table><thead><tr><th>Kampaniya</th><th>Holat</th><th class="r">Sarf</th><th class="r">Lid</th><th class="r">Lid narxi</th><th class="r">Sifatli</th><th class="r">Sotuv</th><th class="r">Konversiya</th><th class="r">1 sotuv narxi</th><th class="r">Summa</th><th class="r">ROAS</th></tr></thead><tbody>
+  ${camps.map(({ c, a }) => `<tr class="click" data-c="${c.id}"><td><b>${openCamp === c.id ? '▾' : '▸'} ${esc(c.name)}</b></td><td>${statusPill(div(a.spend, a.leads))}</td>${row(c.name, a)}</tr>`
+    + (openCamp === c.id ? ADW[c.id].map(ad => { const b = A.byAd[ad.id] || ZERO(); return `<tr class="sub"><td>${esc(ad.name)}</td><td>${statusPill(div(b.spend, b.leads))}</td>${row(ad.name, b)}</tr>`; }).join('') : '')).join('')}
+  <tr><td><b>Jami</b></td><td></td>${row('', t).replace(/<td class="r num">/g, '<td class="r num" style="font-weight:800">')}</tr>
+  </tbody></table></div></div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Lid narxi kampaniyalar bo'yicha</h3><p class="cap">Maqsad: ${money(CFG.targetCpl)}</p>${hbars(camps.map(({ c, a }) => [c.name, div(a.spend, a.leads) || 0]), money)}</div>
+    <div class="card"><h3>Sotuv summasi kampaniyalar bo'yicha</h3><p class="cap">CRM'dagi bitimlar</p>${hbars(camps.map(({ c, a }) => [c.name, a.revenue, int(a.sales) + ' ta']).sort((p, q) => q[1] - p[1]), money)}</div>
+  </div>`;
+}
+
+const NAMES = ['Javohir', 'Madina', 'Bekzod', 'Nilufar', 'Sherzod', 'Dilshod', 'Gulnoza', 'Otabek', 'Sevara', 'Jasur', 'Kamola', 'Ulugbek', 'Shahnoza', 'Rustam', 'Zarina', 'Akmal', 'Feruza', 'Timur', 'Laylo', 'Doniyor', 'Asal', 'Sanjar', 'Mohira', 'Islom'];
+const MODELS = { iPhone: ['iPhone 17 Pro 256GB', 'iPhone 17 Pro Max', 'iPhone 16 128GB', 'iPhone 15 128GB', 'iPhone 17 Pro 512GB'], MacBook: ['MacBook Air M4 13"', 'MacBook Air M4 15"', 'MacBook Pro 14"'], Aksessuar: ['AirPods Pro 3', 'Apple Watch S11', 'AirPods 4', 'Apple Watch SE'], iPad: ['iPad 11', 'iPad Air M3', 'iPad Pro 13"'], Aralash: ['iPhone 17 Pro', 'MacBook Air M4', 'AirPods Pro 3', 'iPad Air M3'] };
+const BADR = [['Faqat narx so\'radi', .34], ['Javob bermadi (3 marta)', .27], ['Boshqa viloyatdan', .16], ['Raqam xato', .12], ['Bo\'lib to\'lashga mos emas', .11]];
+const ST = { new: ['Yangi', 'p-acc'], cont: ["Bog'lanildi", 'p-mut'], qual: ['Sifatli', 'p-warn'], sale: ['Sotildi', 'p-good'], bad: ['Sifatsiz', 'p-bad'] };
+function leadList(from, to, limit = 400) {
+  const out = [], nowM = new Date().getHours() * 60 + new Date().getMinutes();
+  for (let ds = to; ds >= from && out.length < limit; ds = addDays(ds, -1)) {
+    const g = genDay(ds), day = [];
+    g.ads.forEach(a => {
+      const c = C.campaigns.find(k => k.id === a.camp), ad = ADW[a.camp].find(k => k.id === a.ad);
+      for (let i = 0; i < a.leads; i++) {
+        const r = rng(ds + a.ad + i);
+        const isToday = ds === today();
+        let m = isToday ? Math.floor(r() * nowM) : Math.floor(480 + Math.pow(r(), .9) * 900);
+        if (m > 1439) m = 1439;
+        const u = i / Math.max(1, a.leads);
+        let st = i < a.sales ? 'sale' : i < a.qual ? 'qual' : i < a.contacted ? 'bad' : 'cont';
+        if (st === 'cont' && r() < .5) st = 'bad';
+        const age = isToday ? nowM - m : 9999;
+        const sel = (() => { let z = r(), k = 0; for (; k < SW.length - 1; k++) { z -= SW[k].share; if (z < 0) break; } return SW[k]; })();
+        const resp = sel.resp * (.3 + r() * 1.6);
+        if (isToday && age < resp) st = 'new';
+        if (isToday && st === 'sale' && age < 120) st = 'qual';
+        day.push({ ds, m, name: NAMES[Math.floor(r() * NAMES.length)], phone: '+998 9' + Math.floor(r() * 10) + ' *** ** ' + pad(Math.floor(r() * 100)),
+          model: MODELS[c.product][Math.floor(r() * MODELS[c.product].length)], camp: c.name, ad: ad.name, seller: sel.name, resp: st === 'new' ? null : resp, st,
+          why: st === 'bad' ? BADR[Math.floor(Math.pow(r(), 1.3) * BADR.length)][0] : '' });
+        void u;
+      }
+    });
+    day.sort((p, q) => q.m - p.m);
+    out.push(...day);
+  }
+  return out.slice(0, limit);
+}
+let lf = { st: '', camp: '', q: '' }, lshow = 40;
+function vLidlar() {
+  const R = range(), A = aggregate(R.from, R.to), t = A.tot;
+  const L = leadList(R.from, R.to, 600);
+  const fresh = L.filter(l => l.st === 'new').length;
+  const bad = t.contacted - t.qual;
+  const why = BADR.map(([n, w]) => [n, Math.round(bad * w)]);
+  const F = L.filter(l => (!lf.st || l.st === lf.st) && (!lf.camp || l.camp === lf.camp) && (!lf.q || (l.name + l.model + l.phone).toLowerCase().includes(lf.q.toLowerCase())));
+  return pbar('Lidlar') + `
+  <div class="kpis">
+    <div class="kpi"><div class="k">Jami lid</div><div class="v num">${int(t.leads)}</div><div class="d fl">${money(div(t.spend, t.leads))} / lid</div></div>
+    <div class="kpi"><div class="k">Sifatli</div><div class="v num">${int(t.qual)}</div><div class="d up">${pct(div(t.qual, t.leads))}</div></div>
+    <div class="kpi"><div class="k">Sifatsiz</div><div class="v num">${int(bad)}</div><div class="d dn">${pct(div(bad, t.leads))}</div></div>
+    <div class="kpi"><div class="k">Sotildi</div><div class="v num">${int(t.sales)}</div><div class="d up">${pct(div(t.sales, t.leads))} lidlardan</div></div>
+    <div class="kpi"><div class="k">Hali qo'ng'iroq qilinmagan</div><div class="v num" style="color:${fresh ? 'var(--bad)' : 'inherit'}">${int(fresh)}</div><div class="d fl">bugungi yangi lidlar</div></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Nega sifatsiz?</h3><p class="cap">Sotuvchi CRM'da belgilagan sabab</p>${hbars(why, int)}</div>
+    <div class="card"><h3>Lid holatlari</h3><p class="cap">Har bir lid hozir qaysi bosqichda</p>${hbars([['Sotildi', t.sales], ['Sifatli (sotuv jarayonida)', t.qual - t.sales], ['Sifatsiz', bad], ["Bog'lanib bo'lmadi", t.leads - t.contacted]], int)}</div>
+  </div>
+  <div class="card mt"><h3>Oxirgi lidlar</h3><p class="cap">Demo: ismlar va raqamlar to'qima. Haqiqiy tizimda CRM'dan keladi.</p>
+    <div class="filters">
+      <input class="in" id="lq" placeholder="Ism, model yoki raqam" value="${esc(lf.q)}">
+      <select class="in" id="lst"><option value="">Barcha holatlar</option>${Object.entries(ST).map(([k, [n]]) => `<option value="${k}" ${lf.st === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
+      <select class="in" id="lcamp"><option value="">Barcha kampaniyalar</option>${C.campaigns.map(c => `<option ${lf.camp === c.name ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+    </div>
+    <div class="tw"><table><thead><tr><th>Vaqt</th><th>Mijoz</th><th>Qiziqish</th><th>Kampaniya</th><th>Sotuvchi</th><th class="r">Javob</th><th>Holat</th></tr></thead><tbody>
+    ${F.slice(0, lshow).map(l => `<tr><td class="num">${human(l.ds)} ${pad(Math.floor(l.m / 60))}:${pad(l.m % 60)}</td><td><b>${l.name}</b><div class="fl num" style="font-size:12px">${l.phone}</div></td><td>${esc(l.model)}</td><td><span style="font-size:12.5px">${esc(l.camp)}</span><div class="fl" style="font-size:12px">${esc(l.ad)}</div></td><td>${l.seller}</td><td class="r num">${l.resp == null ? '<span class="dn">kutmoqda</span>' : mins(l.resp)}</td><td><span class="pill ${ST[l.st][1]}">${ST[l.st][0]}</span>${l.why ? `<div class="fl" style="font-size:11.5px">${esc(l.why)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="fl">Hech narsa topilmadi</td></tr>'}
+    </tbody></table></div>
+    ${F.length > lshow ? `<div style="text-align:center;margin-top:12px"><button class="btn g" id="more">Yana ko'rsatish (${F.length - lshow})</button></div>` : ''}
+  </div>`;
+}
+
+function vSotuvchilar() {
+  const R = range(), A = aggregate(R.from, R.to), S = A.sellers.slice().sort((a, b) => b.sales - a.sales), t = A.tot;
+  const bands = [['5 daqiqagacha', .128], ['5–15 daqiqa', .097], ['15–60 daqiqa', .066], ['1 soatdan ko\'p', .031]];
+  const fastest = S.slice().sort((a, b) => a.resp - b.resp)[0], slowest = S.slice().sort((a, b) => b.resp - a.resp)[0];
+  return pbar('Sotuvchilar') + `
+  <div class="kpis">
+    <div class="kpi"><div class="k">O'rtacha javob vaqti</div><div class="v num">${mins(t.resp)}</div><div class="d fl">lid tushgandan qo'ng'iroqqacha</div></div>
+    <div class="kpi"><div class="k">5 daqiqada javob</div><div class="v num">${pct(div(S.reduce((a, s) => a + s.fast * s.leads, 0), t.leads))}</div><div class="d fl">lidlar ulushi</div></div>
+    <div class="kpi"><div class="k">Eng tezkor</div><div class="v">${fastest.name}</div><div class="d up">${mins(fastest.resp)}</div></div>
+    <div class="kpi"><div class="k">Eng kech javob</div><div class="v">${slowest.name}</div><div class="d dn">${mins(slowest.resp)}</div></div>
+  </div>
+  <div class="card mt"><h3>Har bir sotuvchi</h3><p class="cap">Kimga qancha lid berildi va nechtasi pulga aylandi</p><div class="tw"><table><thead><tr><th>Sotuvchi</th><th class="r">Lid</th><th class="r">Javob vaqti</th><th class="r">5 daq ichida</th><th class="r">Sifatli</th><th class="r">Sotuv</th><th class="r">Konversiya</th><th class="r">Summa</th></tr></thead><tbody>
+  ${S.map(s => { const cv = div(s.sales, s.leads); return `<tr><td><b>${s.name}</b></td><td class="r num">${int(s.leads)}</td><td class="r num"><span class="pill ${s.resp <= 5 ? 'p-good' : s.resp <= 12 ? 'p-warn' : 'p-bad'}">${mins(s.resp)}</span></td><td class="r num">${pct(s.fast)}</td><td class="r num">${int(s.qual)}</td><td class="r num"><b>${int(s.sales)}</b></td><td class="r num">${pct(cv)}</td><td class="r num">${money(s.revenue)}</td></tr>`; }).join('')}
+  </tbody></table></div></div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Tez javob = ko'proq sotuv</h3><p class="cap">Javob tezligi bo'yicha lid → sotuv konversiyasi</p>${hbars(bands.map(([n, v]) => [n, v]), pct)}
+      <div class="note mt">5 daqiqada qo'ng'iroq qilingan lid 1 soatdan keyin qilinganidan <b>${(bands[0][1] / bands[3][1]).toFixed(1)} barobar</b> ko'p sotuvga aylanadi.</div></div>
+    <div class="card"><h3>Sotuvlar ulushi</h3><p class="cap">Davr: ${pLabel().toLowerCase()}</p>${hbars(S.map(s => [s.name, s.sales, pct(div(s.sales, t.sales))]), int)}</div>
+  </div>`;
+}
+
+let setMsg = {};
+function vSozlamalar(us) {
+  if (USER.role !== 'admin') return pbar('Sozlamalar', false) + '<div class="card">Bu bo\'lim faqat administrator uchun.</div>';
+  const all = allMetrics(), on = CFG.metrics.filter(k => all.some(m => m.key === k)), off = all.filter(m => !on.includes(m.key));
+  const ordered = on.map(k => all.find(m => m.key === k)).concat(off);
+  const COLORS = ['#0a7cff', '#111827', '#16a34a', '#e0413a', '#7c3aed', '#f97316', '#0891b2', '#db2777'];
+  const R = range(), A = aggregate(R.from, R.to);
+  return pbar('Sozlamalar', false) + `<div class="set">
+  <div class="card"><h3>Kirish ma'lumotlari</h3><p class="cap">Siz: <b>${esc(USER.login)}</b>. Login yoki parolni almashtirish uchun joriy parolni kiriting.</p>
+    <form id="fme"><div class="row2"><div class="fld"><label>Yangi login</label><input class="in" name="login" value="${esc(USER.login)}" required minlength="3" autocomplete="username"></div>
+    <div class="fld"><label>Ism</label><input class="in" name="name" value="${esc(USER.name || '')}"></div></div>
+    <div class="row2"><div class="fld"><label>Yangi parol</label><input class="in" name="np" type="password" minlength="6" placeholder="o'zgartirmaslik uchun bo'sh" autocomplete="new-password"></div>
+    <div class="fld"><label>Joriy parol</label><input class="in" name="op" type="password" required autocomplete="current-password"></div></div>
+    <div class="err">${setMsg.me_e || ''}</div><div class="ok">${setMsg.me || ''}</div><button class="btn">Saqlash</button></form></div>
+
+  <div class="card"><h3>Foydalanuvchilar</h3><p class="cap">Rahbar, sotuv bo'limi yoki hamkorga alohida login bering. "Ko'ruvchi" sozlamalarni o'zgartira olmaydi.</p>
+    <div class="tw"><table><thead><tr><th>Ism</th><th>Login</th><th>Rol</th><th></th></tr></thead><tbody>
+    ${us.map((u, i) => `<tr><td>${esc(u.name || '—')}</td><td><b>${esc(u.login)}</b></td><td><span class="pill ${u.role === 'admin' ? 'p-acc' : 'p-mut'}">${u.role === 'admin' ? 'Administrator' : "Ko'ruvchi"}</span></td><td class="r">${u.login === USER.login ? '<span class="fl">siz</span>' : `<button class="btn d s" data-du="${i}">O'chirish</button>`}</td></tr>`).join('')}
+    </tbody></table></div>
+    <form id="fadd" class="mt"><div class="row2"><div class="fld"><label>Ism</label><input class="in" name="name" placeholder="Masalan: Rahbar"></div><div class="fld"><label>Rol</label><select class="in" name="role"><option value="viewer">Ko'ruvchi</option><option value="admin">Administrator</option></select></div></div>
+    <div class="row2"><div class="fld"><label>Login</label><input class="in" name="login" required minlength="3" autocomplete="off"></div><div class="fld"><label>Parol</label><input class="in" name="p" required minlength="6" autocomplete="new-password"></div></div>
+    <div class="err">${setMsg.add_e || ''}</div><div class="ok">${setMsg.add || ''}</div><button class="btn">Foydalanuvchi qo'shish</button></form></div>
+
+  <div class="card"><h3>Ko'rsatkichlar</h3><p class="cap">Umumiy sahifada qaysi raqamlar va qaysi tartibda chiqsin</p>
+    <div class="mlist">${ordered.map(m => { const i = on.indexOf(m.key), act = i >= 0; return `<div class="mi ${act ? '' : 'off'}"><label class="sw"><input type="checkbox" data-mk="${esc(m.key)}" ${act ? 'checked' : ''}><span></span></label>
+      <div class="t">${esc(m.label)}${m.custom ? ' <span class="tagc">o\'zim</span>' : ''}<small>${esc(m.hint)}</small></div>
+      <span class="num fl" style="font-size:13px">${FMT[m.fmt](m.f(A.tot))}</span>
+      ${act ? `<button class="ib" data-up="${esc(m.key)}" ${i === 0 ? 'disabled' : ''} aria-label="Yuqoriga">↑</button><button class="ib" data-dn="${esc(m.key)}" ${i === on.length - 1 ? 'disabled' : ''} aria-label="Pastga">↓</button>` : ''}
+      ${m.custom ? `<button class="ib" data-dc="${esc(m.key)}" aria-label="O'chirish">×</button>` : ''}</div>`; }).join('')}</div>
+    <button class="btn g s mt" id="mreset">Standart holatga qaytarish</button></div>
+
+  <div class="card"><h3>O'z ko'rsatkichingizni qo'shing</h3><p class="cap">Biznesingizga kerak raqamni formula bilan yarating</p>
+    <form id="fcm"><div class="fld"><label>Nomi</label><input class="in" name="name" required placeholder="Masalan: Bitta sifatli lid narxi"></div>
+    <div class="fld"><label>Formula</label><input class="in" name="f" id="cmf" required placeholder="sarf / sifatli"></div>
+    <div class="vars">${Object.keys(VARS).map(v => `<button type="button" data-v="${v}">${v}</button>`).concat(['/', '*', '+', '-', '(', ')'].map(o => `<button type="button" data-v=" ${o} ">${o}</button>`)).join('')}</div>
+    <div class="row2"><div class="fld"><label>Ko'rinishi</label><select class="in" name="fmt"><option value="money">Pul (${cur})</option><option value="int">Son</option><option value="pct">Foiz (%)</option><option value="x">Barobar (×)</option><option value="num">Kasr son</option></select></div>
+    <div class="fld"><label>Hozirgi qiymat</label><div class="in num" id="cmprev" style="background:var(--soft)">—</div></div></div>
+    <div class="err">${setMsg.cm_e || ''}</div><div class="ok">${setMsg.cm || ''}</div><button class="btn">Qo'shish</button></form>
+    <div class="note mt">Misollar: <b>daromad / sarf</b> (ROAS), <b>sotuv / sifatli</b> (sifatli lid → sotuv), <b>sarf / (lid - sifatli)</b> (sifatsiz lidga ketgan pul).</div></div>
+
+  <div class="card"><h3>Ko'rinish</h3><p class="cap">Do'kon nomi, rang va maqsad lid narxi</p>
+    <form id="fbr"><div class="row2"><div class="fld"><label>Do'kon nomi</label><input class="in" name="brand" value="${esc(CFG.brand)}" required></div>
+    <div class="fld"><label>Maqsad lid narxi (${cur})</label><input class="in" name="tcpl" type="number" step="0.05" min="0.1" value="${CFG.targetCpl}" required></div></div>
+    <div class="fld"><label>Asosiy rang</label><div class="colors">${COLORS.map(c => `<button type="button" data-col="${c}" class="${c === CFG.accent ? 'on' : ''}" style="background:${c}" aria-label="${c}"></button>`).join('')}</div></div>
+    <div class="ok">${setMsg.br || ''}</div><button class="btn">Saqlash</button></form></div>
+
+  <div class="card"><h3>Ulanishlar</h3><p class="cap">Haqiqiy tizimda shu manbalardan har kuni avtomatik o'qiladi</p>
+    <div class="mlist">${[['Meta Ads', 'Sarf, ko\'rish, klik, lid — har soatda'], ['amoCRM / Bitrix24', 'Lid holati, sotuvchi, bitim summasi'], ['Sayt pikseli', "Qo'ng'iroq tugmasi bosilishi (Contact)"], ['Telegram bot', 'Har kuni 09:00 da qisqa hisobot']].map(([n, h]) => `<div class="mi"><div class="t">${n}<small>${h}</small></div><span class="pill p-good">demo</span></div>`).join('')}</div>
+    <button class="btn d s mt" id="reset">Demoni boshlang'ich holatga qaytarish</button></div>
+  </div>`;
+}
+
+function vTaqdimot() {
+  const A = aggregate(addDays(today(), -29), today()), t = A.tot, p = C.pitch;
+  return `<div class="pitch">
+  <section><div class="eyebrow">${esc(p.agency)} · Target + hisobot tizimi</div>
+    <h2>Reklamaga ketgan har bir dollar qayerga borganini ko'ring</h2>
+    <p class="lead">Ads Manager faqat lid sonini ko'rsatadi. Bu tizim reklamani, CRM'ni va sotuv bo'limini bitta sahifaga yig'adi: qancha pul ketdi, nechta lid keldi, nechtasi real xaridor bo'ldi va qaysi reklama sotuv olib keldi.</p></section>
+
+  <section><div class="eyebrow">Muammo</div><h3>Ko'p biznesda reklama "ko'r" ishlaydi</h3>
+    <div class="pcards">
+      <div class="pc"><div class="ic">01</div><b>Lid ko'p, sotuv yo'q</b><p>Targetolog "lid arzon" deydi, sotuv bo'limi "lidlar sifatsiz" deydi. Kim haq — hech kim bilmaydi.</p></div>
+      <div class="pc"><div class="ic">02</div><b>Ma'lumot tarqoq</b><p>Sarf Meta'da, lidlar CRM'da, sotuv Excel'da. Haftalik hisobot yig'ish uchun soatlar ketadi.</p></div>
+      <div class="pc"><div class="ic">03</div><b>Lid "sovib" qoladi</b><p>Sotuvchi lidga 1 soatdan keyin qo'ng'iroq qilsa, mijoz allaqachon raqobatchidan sotib olgan bo'ladi.</p></div>
+    </div></section>
+
+  <section><div class="eyebrow">Qanday ishlaydi</div><h3>Reklamadan pulgacha — bitta zanjir</h3>
+    <div class="flow">
+      <div class="st"><small>1</small><b>Meta reklama</b><p>Har bir reklamaga UTM belgi</p></div><div class="ar">→</div>
+      <div class="st"><small>2</small><b>Lid sayt / forma</b><p>Takror arizalar filtrlanadi</p></div><div class="ar">→</div>
+      <div class="st"><small>3</small><b>CRM</b><p>Lid qaysi reklamadan kelgani bilan tushadi</p></div><div class="ar">→</div>
+      <div class="st"><small>4</small><b>Hisobot sayt</b><p>Sarf + sifat + sotuv bitta joyda</p></div><div class="ar">→</div>
+      <div class="st"><small>5</small><b>Telegram</b><p>Har kuni ertalab qisqa xulosa</p></div>
+    </div></section>
+
+  <section><div class="eyebrow">Nimalarni ko'rasiz</div><h3>Rahbar 1 daqiqada tushunadigan hisobot</h3>
+    <div class="pcards">
+      <div class="pc"><b>Lid narxi spidometri</b><p>Yashil — yaxshi, qizil — choralar ko'rish kerak. Raqamlarni tahlil qilish shart emas.</p></div>
+      <div class="pc"><b>Sotuv voronkasi</b><p>Lid → bog'lanildi → sifatli → sotildi. Qaysi bosqichda yo'qotyapsiz.</p></div>
+      <div class="pc"><b>Har bir reklama samarasi</b><p>Qaysi video sotuv olib keldi, qaysi biri pulni yeb qo'ydi — bitta sotuv narxi bilan.</p></div>
+      <div class="pc"><b>Sotuvchilar nazorati</b><p>Kim lidga necha daqiqada qo'ng'iroq qildi, kimning konversiyasi past.</p></div>
+      <div class="pc"><b>Sifatsiz lid sabablari</b><p>Faqat narx so'radi, boshqa shahar, raqam xato — reklamani shunga qarab tuzatamiz.</p></div>
+      <div class="pc"><b>Sizga kerak ko'rsatkichlar</b><p>Metrikalarni yoqib-o'chirasiz, o'z formulangizni qo'shasiz. Har mijozga alohida sozlanadi.</p></div>
+    </div></section>
+
+  <section><div class="eyebrow">Demo misol · oxirgi 30 kun</div><h3>${esc(CFG.brand)}: reklamadan sotuvgacha</h3>
+    <div class="case">
+      <div><div class="v num">${money(t.spend)}</div><div class="k">reklama sarfi</div></div>
+      <div><div class="v num">${int(t.leads)}</div><div class="k">lid · ${money(div(t.spend, t.leads))} dan</div></div>
+      <div><div class="v num">${pct(div(t.qual, t.leads))}</div><div class="k">sifatli lid</div></div>
+      <div><div class="v num">${int(t.sales)}</div><div class="k">sotuv · ${pct(div(t.sales, t.leads))} konversiya</div></div>
+      <div><div class="v num">${money(div(t.spend, t.sales))}</div><div class="k">bitta sotuv narxi</div></div>
+    </div>
+    <p class="cap" style="margin-top:12px">Raqamlar namunaviy — tizim imkoniyatini ko'rsatish uchun.</p></section>
+
+  <section><div class="pack"><div><div class="eyebrow">Paket</div><h3 style="margin:6px 0 10px;color:var(--bg)">Target xizmati + shaxsiy hisobot tizimi</h3>
+      <div class="price">${esc(p.price)}</div><p class="muted">Aniq narx byudjet va yo'nalishlar soniga qarab kelishiladi.</p>
+      <a class="btn" href="${esc(p.contactUrl)}" target="_blank" rel="noopener">${esc(p.contactLabel)}</a></div>
+    <ul><li>Meta reklamani to'liq boshqarish va kunlik optimizatsiya</li><li>Kreativ ssenariylar va reklama matnlari</li><li>Lid sayt yoki forma, takror arizalarni filtrlash</li><li>CRM bilan ulash va UTM belgilar</li><li>Shaxsiy hisobot sayt: login-parol, sozlamalar</li><li>Telegram'ga kunlik hisobot</li><li>Haftalik tahlil va keyingi qadamlar</li></ul></div></section>
+  </div>`;
+}
+
+/* ---------- render ---------- */
+async function render() {
+  const h = (location.hash || '').slice(1);
+  if (!USER) {
+    if (h === 'taqdimot') { $('#login').hidden = true; $('#app').hidden = true; const po = $('#pitchOnly'); po.hidden = false;
+      po.innerHTML = `<div class="wrap"><div class="toplink"><div class="logo">${esc((CFG.brand[0] || 'H').toUpperCase())}</div><b style="flex:1">${esc(CFG.brand)} · hisobot tizimi</b><a class="btn s" href="#">Demoga kirish</a></div>${vTaqdimot()}<div class="foot">Demo versiya</div></div>`; window.scrollTo(0, 0); return; }
+    $('#pitchOnly').hidden = true; $('#app').hidden = true; $('#login').hidden = false;
+    const us = await users();
+    $('#lhint').innerHTML = us.some(u => u.login === C.defaultLogin) ? `Demo kirish: login <b>${esc(C.defaultLogin)}</b>, parol <b>${esc(C.defaultPassword)}</b>` : 'Login va parolni administratoringizdan oling.';
+    return;
+  }
+  $('#login').hidden = true; $('#pitchOnly').hidden = true; $('#app').hidden = false;
+  TAB = TABS.some(t => t[0] === h) ? h : 'umumiy';
+  if (TAB === 'sozlamalar' && USER.role !== 'admin') TAB = 'umumiy';
+  $('#tabs').innerHTML = TABS.filter(t => !t[2] || USER.role === t[2]).map(([k, l, , c]) => `<a href="#${k}" class="${k === TAB ? 'on' : ''} ${c || ''}">${l}</a>`).join('');
+  $('#whoami').textContent = USER.name || USER.login;
+  const V = { umumiy: vUmumiy, kampaniyalar: vKampaniyalar, lidlar: vLidlar, sotuvchilar: vSotuvchilar, sozlamalar: vSozlamalar, taqdimot: vTaqdimot };
+  $('#view').innerHTML = TAB === 'sozlamalar' ? vSozlamalar(await users()) : V[TAB]() + '<div class="foot">Demo ma\'lumot · ' + esc(CFG.brand) + '</div>';
+  setMsg = {};
+}
+
+/* ---------- hodisalar ---------- */
+$('#lform').addEventListener('submit', async e => {
+  e.preventDefault();
+  const lg = $('#lu').value.trim(), p = $('#lp').value, us = await users();
+  const hsh = await passHash(lg, p), u = us.find(x => x.login.toLowerCase() === lg.toLowerCase() && x.hash === hsh);
+  if (!u) { $('#lerr').textContent = 'Login yoki parol noto\'g\'ri'; return; }
+  $('#lerr').textContent = ''; $('#lp').value = '';
+  USER = { login: u.login, name: u.name, role: u.role }; sess.set(USER, true);
+  if (location.hash === '#taqdimot' || !location.hash) location.hash = 'umumiy'; else render();
+});
+$('#logout').addEventListener('click', () => { sess.clear(); USER = null; location.hash = ''; render(); });
+window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+
+document.addEventListener('click', async e => {
+  const b = e.target.closest('button,tr.click'); if (!b) return;
+  if (b.dataset.p) { PERIOD = b.dataset.p; store.set('period', PERIOD); lshow = 40; render(); return; }
+  if (b.dataset.m) { chartMode = b.dataset.m; render(); return; }
+  if (b.dataset.c) { openCamp = openCamp === b.dataset.c ? null : b.dataset.c; render(); return; }
+  if (b.id === 'more') { lshow += 60; render(); return; }
+  if (b.dataset.up || b.dataset.dn) { const k = b.dataset.up || b.dataset.dn, i = CFG.metrics.indexOf(k), j = b.dataset.up ? i - 1 : i + 1; [CFG.metrics[i], CFG.metrics[j]] = [CFG.metrics[j], CFG.metrics[i]]; saveCfg(); render(); return; }
+  if (b.dataset.dc) { CFG.custom = CFG.custom.filter(m => m.id !== b.dataset.dc); CFG.metrics = CFG.metrics.filter(k => k !== b.dataset.dc); saveCfg(); render(); return; }
+  if (b.id === 'mreset') { CFG.metrics = DEFAULT_METRICS.slice(); saveCfg(); render(); return; }
+  if (b.dataset.col) { CFG.accent = b.dataset.col; saveCfg(); render(); return; }
+  if (b.dataset.v) { const f = $('#cmf'); f.value = (f.value + b.dataset.v).replace(/\s+/g, ' '); f.focus(); f.dispatchEvent(new Event('input', { bubbles: true })); return; }
+  if (b.dataset.du) { const us = await users(), u = us[+b.dataset.du]; if (!u || u.login === USER.login) return;
+    if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Aniqmi? Bosing'; return; }
+    store.set('users', us.filter((_, i) => i !== +b.dataset.du)); render(); return; }
+  if (b.id === 'reset') { if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Hammasi o\'chadi. Yana bir bosing'; return; }
+    store.del('cfg'); store.del('users'); store.del('period'); sess.clear(); location.hash = ''; location.reload(); }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.mk) { const k = t.dataset.mk; CFG.metrics = t.checked ? CFG.metrics.concat(k) : CFG.metrics.filter(x => x !== k); saveCfg(); render(); }
+  if (t.id === 'lst') { lf.st = t.value; lshow = 40; render(); }
+  if (t.id === 'lcamp') { lf.camp = t.value; lshow = 40; render(); }
+});
+let qT;
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.id === 'lq') { clearTimeout(qT); qT = setTimeout(() => { lf.q = t.value; lshow = 40; render().then(() => { const i = $('#lq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); }, 300); }
+  if (t.id === 'cmf') { const fn = compileFormula(t.value), R = range(), A = aggregate(R.from, R.to), fmt = t.form.fmt.value; $('#cmprev').textContent = fn ? FMT[fmt](fn(A.tot)) : (t.value ? 'formula xato' : '—'); }
+});
+document.addEventListener('submit', async e => {
+  const f = e.target, F = new FormData(f); if (f.id === 'lform') return; e.preventDefault();
+  if (f.id === 'fme') {
+    const us = await users(), i = us.findIndex(u => u.login === USER.login), u = us[i];
+    if (u.hash !== await passHash(u.login, F.get('op'))) { setMsg.me_e = 'Joriy parol noto\'g\'ri'; return render(); }
+    const nl = F.get('login').trim();
+    if (us.some((x, j) => j !== i && x.login.toLowerCase() === nl.toLowerCase())) { setMsg.me_e = 'Bu login band'; return render(); }
+    const np = F.get('np') || F.get('op');
+    us[i] = { ...u, login: nl, name: F.get('name').trim(), hash: await passHash(nl, np) };
+    store.set('users', us); USER = { login: nl, name: us[i].name, role: u.role }; sess.set(USER, true);
+    setMsg.me = 'Saqlandi. Keyingi kirishda yangi ma\'lumotlardan foydalaning.'; return render();
+  }
+  if (f.id === 'fadd') {
+    const us = await users(), lg = F.get('login').trim();
+    if (us.some(x => x.login.toLowerCase() === lg.toLowerCase())) { setMsg.add_e = 'Bu login band'; return render(); }
+    us.push({ login: lg, name: F.get('name').trim(), role: F.get('role'), hash: await passHash(lg, F.get('p')) });
+    store.set('users', us); setMsg.add = `"${esc(lg)}" qo'shildi. Login va parolni o'sha odamga yuboring.`; return render();
+  }
+  if (f.id === 'fcm') {
+    if (!compileFormula(F.get('f'))) { setMsg.cm_e = 'Formulada faqat yuqoridagi so\'zlar, raqamlar va + − × ÷ ( ) bo\'lsin'; return render(); }
+    const id = 'u' + Date.now().toString(36);
+    CFG.custom.push({ id, name: F.get('name').trim().slice(0, 40), formula: F.get('f').trim(), fmt: F.get('fmt') }); CFG.metrics.push(id);
+    saveCfg(); setMsg.cm = 'Qo\'shildi va Umumiy sahifaga chiqarildi.'; return render();
+  }
+  if (f.id === 'fbr') {
+    CFG.brand = F.get('brand').trim() || C.brand; CFG.targetCpl = Math.max(.1, +F.get('tcpl') || C.targetCpl);
+    saveCfg(); setMsg.br = 'Saqlandi.'; return render();
+  }
+});
+
+/* ---------- start ---------- */
+applyBrand();
+(async () => {
+  const s = sess.get(), us = await users();
+  if (s && us.some(u => u.login === s.login)) { const u = us.find(x => x.login === s.login); USER = { login: u.login, name: u.name, role: u.role }; }
+  render();
+})();
+})();
